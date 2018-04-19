@@ -26,15 +26,6 @@ var (
 	ErrTooLong  = errors.New("ar: write too long")
 )
 
-type Header struct {
-	Name    string
-	Uid     int
-	Gid     int
-	Mode    int
-	Length  int
-	ModTime time.Time
-}
-
 type Writer struct {
 	inner io.Writer
 	curr  io.Writer
