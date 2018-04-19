@@ -8,6 +8,8 @@ import (
 	"io/ioutil"
 	"strconv"
 	"time"
+
+	"github.com/midbel/tape"
 )
 
 var (
@@ -24,22 +26,6 @@ const (
 	magicLen  = 6
 )
 
-type Header struct {
-	Inode    int64
-	Mode     int64
-	Uid      int64
-	Gid      int64
-	Links    int64
-	Length   int64
-	Major    int64
-	Minor    int64
-	RMajor   int64
-	RMinor   int64
-	Check    int64
-	ModTime  time.Time
-	Filename string
-}
-
 type Writer struct {
 	inner  io.Writer
 	blocks int64
@@ -49,7 +35,7 @@ func NewWriter(w io.Writer) *Writer {
 	return &Writer{inner: w}
 }
 
-func (w *Writer) WriteHeader(h *Header) error {
+func (w *Writer) WriteHeader(h *tape.Header) error {
 	return w.writeHeader(h, false)
 }
 
@@ -69,7 +55,7 @@ func (w *Writer) Write(bs []byte) (int, error) {
 }
 
 func (w *Writer) Close() error {
-	h := Header{Filename: trailer}
+	h := tape.Header{Filename: trailer}
 	if err := w.writeHeader(&h, true); err != nil {
 		return err
 	}
@@ -81,7 +67,7 @@ func (w *Writer) Close() error {
 	return err
 }
 
-func (w *Writer) writeHeader(h *Header, trailing bool) error {
+func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 	buf := new(bytes.Buffer)
 	z := int64(len(h.Filename)) + 1
 
@@ -119,7 +105,7 @@ func (w *Writer) writeHeader(h *Header, trailing bool) error {
 type Reader struct {
 	inner  *bufio.Reader
 	body   io.Reader
-	hdr    *Header
+	hdr    *tape.Header
 	err    error
 	remain int
 }
@@ -128,14 +114,14 @@ func NewReader(r io.Reader) *Reader {
 	return &Reader{inner: bufio.NewReader(r)}
 }
 
-func (r *Reader) Next() (*Header, error) {
+func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	r.body = nil
 
 	var (
-		h Header
+		h tape.Header
 		z int64
 	)
 	if err := readMagic(r.inner); err != nil {

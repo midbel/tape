@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/midbel/mack/cpio"
+	"github.com/midbel/tape"
+	"github.com/midbel/tape/cpio"
 )
 
 func main() {
@@ -75,7 +76,7 @@ func appendFile(w *cpio.Writer, f string, r bool) error {
 	if !ok || stat == nil {
 		return fmt.Errorf("can not get stat for info %s", f)
 	}
-	h := cpio.Header{
+	h := tape.Header{
 		Filename: f,
 		Mode:     int64(i.Mode()),
 		Length:   i.Size(),

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/midbel/tape"
 )
 
 var (
@@ -49,7 +51,7 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	return &Writer{inner: w}, nil
 }
 
-func (w *Writer) WriteHeader(h *Header) error {
+func (w *Writer) WriteHeader(h *tape.Header) error {
 	if w.err != nil {
 		return w.err
 	}
@@ -59,12 +61,12 @@ func (w *Writer) WriteHeader(h *Header) error {
 	}
 
 	buf := new(bytes.Buffer)
-	writeHeaderField(buf, path.Base(h.Name)+"/", 16)
+	writeHeaderField(buf, path.Base(h.Filename)+"/", 16)
 	writeHeaderField(buf, strconv.FormatInt(h.ModTime.Unix(), 10), 12)
-	writeHeaderField(buf, strconv.FormatInt(int64(h.Uid), 10), 6)
-	writeHeaderField(buf, strconv.FormatInt(int64(h.Gid), 10), 6)
-	writeHeaderField(buf, strconv.FormatInt(int64(h.Mode), 8), 8)
-	writeHeaderField(buf, strconv.FormatInt(int64(h.Length), 10), 10)
+	writeHeaderField(buf, strconv.FormatInt(h.Uid, 10), 6)
+	writeHeaderField(buf, strconv.FormatInt(h.Gid, 10), 6)
+	writeHeaderField(buf, strconv.FormatInt(h.Mode, 8), 8)
+	writeHeaderField(buf, strconv.FormatInt(h.Length, 10), 10)
 	buf.Write(linefeed)
 
 	_, err := io.Copy(w.inner, buf)
@@ -74,8 +76,8 @@ func (w *Writer) WriteHeader(h *Header) error {
 	}
 	w.curr = &fileWriter{
 		writer:    w.inner,
-		remaining: h.Length,
-		size:      h.Length,
+		remaining: int(h.Length),
+		size:      int(h.Length),
 	}
 	return nil
 }
@@ -119,7 +121,7 @@ type Reader struct {
 	err   error
 }
 
-func List(file string) ([]*Header, error) {
+func List(file string) ([]*tape.Header, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -130,7 +132,7 @@ func List(file string) ([]*Header, error) {
 	if err != nil {
 		return nil, err
 	}
-	var hs []*Header
+	var hs []*tape.Header
 	for {
 		h, err := r.Next()
 		if err == io.EOF {
@@ -159,7 +161,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	return &Reader{inner: rs}, nil
 }
 
-func (r *Reader) Next() (*Header, error) {
+func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -168,12 +170,12 @@ func (r *Reader) Next() (*Header, error) {
 	return h, r.err
 }
 
-func (r *Reader) next() (*Header, error) {
+func (r *Reader) next() (*tape.Header, error) {
 	if r.curr != nil {
 		io.Copy(ioutil.Discard, r.curr)
 	}
 
-	var h Header
+	var h tape.Header
 	if err := readFilename(r.inner, &h); err != nil {
 		r.err = err
 		return nil, err
@@ -190,8 +192,8 @@ func (r *Reader) next() (*Header, error) {
 	}
 	r.curr = &fileReader{
 		reader:    r.inner,
-		remaining: h.Length,
-		size:      h.Length,
+		remaining: int(h.Length),
+		size:      int(h.Length),
 	}
 	return &h, r.err
 }
@@ -207,16 +209,16 @@ func (r *Reader) Read(bs []byte) (int, error) {
 	return n, err
 }
 
-func readFilename(r io.Reader, h *Header) error {
+func readFilename(r io.Reader, h *tape.Header) error {
 	bs, err := readHeaderField(r, 16)
 	if err != nil {
 		return err
 	}
-	h.Name = string(bs)
+	h.Filename = string(bs)
 	return nil
 }
 
-func readModTime(r io.Reader, h *Header) error {
+func readModTime(r io.Reader, h *tape.Header) error {
 	bs, err := readHeaderField(r, 12)
 	if err != nil {
 		return err
@@ -229,7 +231,7 @@ func readModTime(r io.Reader, h *Header) error {
 	return nil
 }
 
-func readFileInfos(r io.Reader, h *Header) error {
+func readFileInfos(r io.Reader, h *tape.Header) error {
 	if bs, err := readHeaderField(r, 6); err != nil {
 		return err
 	} else {
@@ -237,7 +239,7 @@ func readFileInfos(r io.Reader, h *Header) error {
 		if err != nil {
 			return err
 		}
-		h.Uid = int(i)
+		h.Uid = i
 	}
 	if bs, err := readHeaderField(r, 6); err != nil {
 		return err
@@ -246,7 +248,7 @@ func readFileInfos(r io.Reader, h *Header) error {
 		if err != nil {
 			return err
 		}
-		h.Gid = int(i)
+		h.Gid = i
 	}
 	if bs, err := readHeaderField(r, 8); err != nil {
 		return err
@@ -255,7 +257,7 @@ func readFileInfos(r io.Reader, h *Header) error {
 		if err != nil {
 			return err
 		}
-		h.Mode = int(i)
+		h.Mode = i
 	}
 	if bs, err := readHeaderField(r, 10); err != nil {
 		return err
@@ -264,7 +266,7 @@ func readFileInfos(r io.Reader, h *Header) error {
 		if err != nil {
 			return err
 		}
-		h.Length = int(i)
+		h.Length = i
 	}
 	return nil
 }

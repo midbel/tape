@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/midbel/mack/ar"
+	"github.com/midbel/tape"
+	"github.com/midbel/tape/ar"
 )
 
 func main() {
@@ -56,13 +57,13 @@ func writeTo(a, p string, e bool) {
 		if i.IsDir() {
 			return nil
 		}
-		h := ar.Header{
-			Name:    i.Name(),
-			ModTime: i.ModTime(),
-			Uid:     1000,
-			Gid:     1000,
-			Mode:    int(i.Mode()),
-			Length:  int(i.Size()),
+		h := tape.Header{
+			Filename: i.Name(),
+			ModTime:  i.ModTime(),
+			Uid:      1000,
+			Gid:      1000,
+			Mode:     int64(i.Mode()),
+			Length:   i.Size(),
 		}
 		if e {
 			h.ModTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
