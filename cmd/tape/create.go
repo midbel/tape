@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/midbel/cli"
+	"github.com/midbel/tape"
 	"github.com/midbel/tape/ar"
 	"github.com/midbel/tape/cpio"
 )
@@ -43,7 +43,7 @@ func runCreate(cmd *cli.Command, args []string) error {
 	case ".ar":
 		err = createAR(cmd.Flag.Arg(0), files, *compress, *preserve)
 	default:
-		return fmt.Errorf("tape: can not create %s archive", e)
+		return ErrNotSupported(e)
 	}
 	return err
 }
@@ -84,7 +84,7 @@ func createAR(a string, files []string, compress, preserve bool) error {
 				return err
 			}
 		}
-		h := ar.Header{
+		h := tape.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
@@ -139,7 +139,7 @@ func createCPIO(a string, files []string, compress, preserve bool) error {
 				return err
 			}
 		}
-		h := cpio.Header{
+		h := tape.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),

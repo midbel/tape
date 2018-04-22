@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -23,21 +22,21 @@ func runExtract(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	var err error
 	for _, a := range cmd.Flag.Args() {
+		var err error
 		switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 		case ".cpio":
 			err = extractCPIO(a, *datadir, *preserve)
 		case ".ar":
 			err = extractAR(a, *datadir, *preserve)
 		default:
-			return fmt.Errorf("tape: can not extract %s archive", e)
+			return ErrNotSupported(e)
 		}
 		if err != nil {
-			break
+			return err
 		}
 	}
-	return err
+	return nil
 }
 
 func extractAR(file, datadir string, preserve bool) error {

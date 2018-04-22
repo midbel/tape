@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -8,6 +9,16 @@ import (
 
 	"github.com/midbel/cli"
 )
+
+type ErrNotSupported string
+
+func (e ErrNotSupported) Error() string {
+	v := string(e)
+	if v[0] == '.' {
+		v = v[1:]
+	}
+	return fmt.Sprintf("tape: unsupported archive type %s", v)
+}
 
 var commands = []*cli.Command{
 	{
@@ -25,7 +36,7 @@ var commands = []*cli.Command{
 	},
 	{
 		Run:   runList,
-		Usage: "list [-b] [-v] <archive,...>",
+		Usage: "list [-b] <archive,...>",
 		Alias: []string{"ls"},
 		Short: "list the content of cpio and/or ar archives",
 		Desc:  "",
