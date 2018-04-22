@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+  "bytes"
+  "compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -22,7 +24,7 @@ import (
 var commands = []*cli.Command{
 	{
 		Run:   runCreate,
-		Usage: "create <archive> <file,...>",
+		Usage: "create [-c] <archive> <file,...>",
 		Alias: []string{"make"},
 		Short: "create a new cpio or ar archives",
 		Desc:  "",
@@ -78,6 +80,7 @@ func usage() {
 }
 
 func runCreate(cmd *cli.Command, args []string) error {
+  compress := cmd.Flag.Bool("c", false, "compress")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -97,9 +100,9 @@ func runCreate(cmd *cli.Command, args []string) error {
 	var err error
 	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 	case ".cpio":
-		err = createCPIO(cmd.Flag.Arg(0), files)
+		err = createCPIO(cmd.Flag.Arg(0), files, *compress)
 	case ".ar":
-		err = createAR(cmd.Flag.Arg(0), files)
+		err = createAR(cmd.Flag.Arg(0), files, *compress)
 	default:
 		return fmt.Errorf("tape: can not create %s archive", e)
 	}
@@ -148,7 +151,7 @@ func runList(cmd *cli.Command, args []string) error {
 	return err
 }
 
-func createAR(a string, files []string) error {
+func createAR(a string, files []string, compress bool) error {
 	f, err := os.Create(a)
 	if err != nil {
 		return err
@@ -170,11 +173,25 @@ func createAR(a string, files []string) error {
 		if err != nil {
 			return err
 		}
+    var buf bytes.Buffer
+    if compress {
+      g := gzip.NewWriter(&buf)
+      if _, err := io.Copy(g, f); err != nil {
+        return err
+      }
+      if err := g.Close(); err != nil {
+        return err
+      }
+    } else {
+      if _, err := io.Copy(&buf, f); err != nil {
+        return err
+      }
+    }
 		h := ar.Header{
 			Filename: i.Name(),
-			Length:   i.Size(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
+      Length:   int64(buf.Len()),
 		}
 		if i, ok := i.Sys().(*syscall.Stat_t); ok {
 			h.Uid, h.Gid = int64(i.Uid), int64(i.Gid)
@@ -182,14 +199,14 @@ func createAR(a string, files []string) error {
 		if err := w.WriteHeader(&h); err != nil {
 			return err
 		}
-		if _, err := io.Copy(w, f); err != nil {
+		if _, err := io.Copy(w, &buf); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func createCPIO(a string, files []string) error {
+func createCPIO(a string, files []string, compress bool) error {
 	f, err := os.Create(a)
 	if err != nil {
 		return err
@@ -208,11 +225,25 @@ func createCPIO(a string, files []string) error {
 		if err != nil {
 			return err
 		}
+    var buf bytes.Buffer
+    if compress {
+      g := gzip.NewWriter(&buf)
+      if _, err := io.Copy(g, f); err != nil {
+        return err
+      }
+      if err := g.Close(); err != nil {
+        return err
+      }
+    } else {
+      if _, err := io.Copy(&buf, f); err != nil {
+        return err
+      }
+    }
 		h := cpio.Header{
 			Filename: i.Name(),
-			Length:   i.Size(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
+      Length:   int64(buf.Len()),
 		}
 		if i, ok := i.Sys().(*syscall.Stat_t); ok {
 			h.Uid = int64(i.Uid)
@@ -225,7 +256,7 @@ func createCPIO(a string, files []string) error {
 		if err := w.WriteHeader(&h); err != nil {
 			return err
 		}
-		if _, err := io.Copy(w, f); err != nil {
+		if _, err := io.Copy(w, &buf); err != nil {
 			return err
 		}
 	}
