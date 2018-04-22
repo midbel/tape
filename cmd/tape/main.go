@@ -31,7 +31,7 @@ var commands = []*cli.Command{
 	},
 	{
 		Run:   runExtract,
-		Usage: "extract <archive,...>",
+		Usage: "extract [-p] <archive,...>",
 		Short: "extract the content of cpio and/or ar archives",
 		Desc:  "",
 	},
@@ -110,6 +110,7 @@ func runCreate(cmd *cli.Command, args []string) error {
 }
 
 func runExtract(cmd *cli.Command, args []string) error {
+	preserve := cmd.Flag.Bool("p", false, "preserve")
 	datadir := cmd.Flag.String("d", os.TempDir(), "datadir")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -118,9 +119,9 @@ func runExtract(cmd *cli.Command, args []string) error {
 	for _, a := range cmd.Flag.Args() {
 		switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 		case ".cpio":
-			err = extractCPIO(a, *datadir)
+			err = extractCPIO(a, *datadir, *preserve)
 		case ".ar":
-			err = extractAR(a, *datadir)
+			err = extractAR(a, *datadir, *preserve)
 		default:
 			return fmt.Errorf("tape: can not extract %s archive", e)
 		}
@@ -370,7 +371,7 @@ func listCPIO(file, block string, verbose bool) error {
 	return nil
 }
 
-func extractAR(file, datadir string) error {
+func extractAR(file, datadir string, preserve bool) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return err
@@ -407,10 +408,18 @@ func extractAR(file, datadir string) error {
 		if err := ioutil.WriteFile(p, buf.Bytes(), os.FileMode(h.Mode)); err != nil {
 			return err
 		}
+		if !preserve {
+			h.Uid, h.Gid = int64(os.Geteuid()), int64(os.Getgid())
+			h.ModTime = time.Now()
+		}
+		if err := updateFileInfo(p, h.Uid, h.Gid, h.ModTime.Unix()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
-func extractCPIO(file, datadir string) error {
+
+func extractCPIO(file, datadir string, preserve bool) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return err
@@ -446,6 +455,13 @@ func extractCPIO(file, datadir string) error {
 			return err
 		}
 		if err := ioutil.WriteFile(p, buf.Bytes(), os.FileMode(h.Mode)); err != nil {
+			return err
+		}
+		if !preserve {
+			h.Uid, h.Gid = int64(os.Geteuid()), int64(os.Getgid())
+			h.ModTime = time.Now()
+		}
+		if err := updateFileInfo(p, h.Uid, h.Gid, h.ModTime.Unix()); err != nil {
 			return err
 		}
 	}
@@ -498,4 +514,18 @@ func parseMode(i int64) []string {
 		i = i >> 3
 	}
 	return vs
+}
+
+func updateFileInfo(p string, uid, gid, mod int64) error {
+	if err := syscall.Chown(p, int(uid), int(gid)); err != nil {
+		return err
+	}
+	t := syscall.Utimbuf{
+		Actime:  mod,
+		Modtime: mod,
+	}
+	if err := syscall.Utime(p, &t); err != nil {
+		return err
+	}
+	return nil
 }
