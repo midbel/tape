@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/user"
 	"strconv"
 	"time"
 )
@@ -45,6 +46,24 @@ type Header struct {
 	Check    int64
 	ModTime  time.Time
 	Filename string
+}
+
+func (h Header) User() string {
+	i := strconv.FormatInt(h.Uid, 10)
+	u, err := user.LookupId(i)
+	if err != nil {
+		return i
+	}
+	return u.Username
+}
+
+func (h Header) Group() string {
+	i := strconv.FormatInt(h.Gid, 10)
+	g, err := user.LookupGroupId(i)
+	if err != nil {
+		return i
+	}
+	return g.Name
 }
 
 type Writer struct {
