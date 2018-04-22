@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"text/template"
 	"time"
@@ -20,21 +22,22 @@ import (
 var commands = []*cli.Command{
 	{
 		Run:   runCreate,
-		Usage: "create [-z] <archive> <file,...>",
-		Short: "",
+		Usage: "create <archive> <file,...>",
+		Alias: []string{"make"},
+		Short: "create a new cpio or ar archives",
 		Desc:  "",
 	},
 	{
 		Run:   runExtract,
-		Usage: "extract <archive>",
-		Short: "",
+		Usage: "extract <archive,...>",
+		Short: "extract the content of cpio and/or ar archives",
 		Desc:  "",
 	},
 	{
 		Run:   runList,
-		Usage: "list [-v] <archive>",
+		Usage: "list [-b] [-v] <archive,...>",
 		Alias: []string{"ls"},
-		Short: "",
+		Short: "list the content of cpio and/or ar archives",
 		Desc:  "",
 	},
 }
@@ -78,12 +81,25 @@ func runCreate(cmd *cli.Command, args []string) error {
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
+	var files []string
+	if cmd.Flag.NArg() == 1 {
+		s := bufio.NewScanner(os.Stdin)
+		for s.Scan() {
+			files = append(files, s.Text())
+		}
+		if err := s.Err(); err != nil {
+			return err
+		}
+	} else {
+		args := cmd.Flag.Args()
+		files = args[1:]
+	}
 	var err error
 	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 	case ".cpio":
-		err = createCPIO()
+		err = createCPIO(cmd.Flag.Arg(0), files)
 	case ".ar":
-		err = createAR()
+		err = createAR(cmd.Flag.Arg(0), files)
 	default:
 		return fmt.Errorf("tape: can not create %s archive", e)
 	}
@@ -132,8 +148,90 @@ func runList(cmd *cli.Command, args []string) error {
 	return err
 }
 
-func createAR() error   { return nil }
-func createCPIO() error { return nil }
+func createAR(a string, files []string) error {
+	f, err := os.Create(a)
+	if err != nil {
+		return err
+	}
+	w, err := ar.NewWriter(f)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		w.Close()
+		f.Close()
+	}()
+	for _, f := range files {
+		f, err := os.Open(f)
+		if err != nil {
+			return err
+		}
+		i, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		h := ar.Header{
+			Filename: i.Name(),
+			Length:   i.Size(),
+			ModTime:  i.ModTime(),
+			Mode:     int64(i.Mode()),
+		}
+		if i, ok := i.Sys().(*syscall.Stat_t); ok {
+			h.Uid, h.Gid = int64(i.Uid), int64(i.Gid)
+		}
+		if err := w.WriteHeader(&h); err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createCPIO(a string, files []string) error {
+	f, err := os.Create(a)
+	if err != nil {
+		return err
+	}
+	w := cpio.NewWriter(f)
+	defer func() {
+		w.Close()
+		f.Close()
+	}()
+	for _, f := range files {
+		f, err := os.Open(f)
+		if err != nil {
+			return err
+		}
+		i, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		h := cpio.Header{
+			Filename: i.Name(),
+			Length:   i.Size(),
+			ModTime:  i.ModTime(),
+			Mode:     int64(i.Mode()),
+		}
+		if i, ok := i.Sys().(*syscall.Stat_t); ok {
+			h.Uid = int64(i.Uid)
+			h.Gid = int64(i.Gid)
+			h.Major = int64(i.Dev >> 32)
+			h.Minor = int64(i.Dev & 0xFFFFFFFF)
+			h.Links = int64(i.Nlink)
+			h.Inode = int64(i.Ino)
+		}
+		if err := w.WriteHeader(&h); err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, f); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 func listAR(file, block string, verbose bool) error {
 	f, err := os.Open(file)
