@@ -7,11 +7,12 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"os/user"
 	"path"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/midbel/tape"
 )
 
 var (
@@ -24,33 +25,6 @@ var (
 	ErrTooShort = errors.New("ar: write too short")
 	ErrTooLong  = errors.New("ar: write too long")
 )
-
-type Header struct {
-	Mode     int64
-	Uid      int64
-	Gid      int64
-	Length   int64
-	ModTime  time.Time
-	Filename string
-}
-
-func (h Header) User() string {
-	i := strconv.FormatInt(h.Uid, 10)
-	u, err := user.LookupId(i)
-	if err != nil {
-		return i
-	}
-	return u.Username
-}
-
-func (h Header) Group() string {
-	i := strconv.FormatInt(h.Gid, 10)
-	g, err := user.LookupGroupId(i)
-	if err != nil {
-		return i
-	}
-	return g.Name
-}
 
 type Writer struct {
 	inner io.Writer
@@ -68,7 +42,7 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	return &Writer{inner: w}, nil
 }
 
-func (w *Writer) WriteHeader(h *Header) error {
+func (w *Writer) WriteHeader(h *tape.Header) error {
 	if w.err != nil {
 		return w.err
 	}
@@ -138,7 +112,7 @@ type Reader struct {
 	err   error
 }
 
-func List(file string) ([]*Header, error) {
+func List(file string) ([]*tape.Header, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -149,7 +123,7 @@ func List(file string) ([]*Header, error) {
 	if err != nil {
 		return nil, err
 	}
-	var hs []*Header
+	var hs []*tape.Header
 	for {
 		h, err := r.Next()
 		if err == io.EOF {
@@ -178,7 +152,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	return &Reader{inner: rs}, nil
 }
 
-func (r *Reader) Next() (*Header, error) {
+func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -187,12 +161,12 @@ func (r *Reader) Next() (*Header, error) {
 	return h, r.err
 }
 
-func (r *Reader) next() (*Header, error) {
+func (r *Reader) next() (*tape.Header, error) {
 	if r.curr != nil {
 		io.Copy(ioutil.Discard, r.curr)
 	}
 
-	var h Header
+	var h tape.Header
 	if err := readFilename(r.inner, &h); err != nil {
 		r.err = err
 		return nil, err
@@ -226,7 +200,7 @@ func (r *Reader) Read(bs []byte) (int, error) {
 	return n, err
 }
 
-func readFilename(r io.Reader, h *Header) error {
+func readFilename(r io.Reader, h *tape.Header) error {
 	bs, err := readHeaderField(r, 16)
 	if err != nil {
 		return err
@@ -235,7 +209,7 @@ func readFilename(r io.Reader, h *Header) error {
 	return nil
 }
 
-func readModTime(r io.Reader, h *Header) error {
+func readModTime(r io.Reader, h *tape.Header) error {
 	bs, err := readHeaderField(r, 12)
 	if err != nil {
 		return err
@@ -248,7 +222,7 @@ func readModTime(r io.Reader, h *Header) error {
 	return nil
 }
 
-func readFileInfos(r io.Reader, h *Header) error {
+func readFileInfos(r io.Reader, h *tape.Header) error {
 	if bs, err := readHeaderField(r, 6); err != nil {
 		return err
 	} else {

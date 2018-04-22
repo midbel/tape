@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/user"
 	"strconv"
 	"time"
+
+	"github.com/midbel/tape"
 )
 
 var (
@@ -32,40 +33,6 @@ const (
 	magicLen  = 6
 )
 
-type Header struct {
-	Inode    int64
-	Mode     int64
-	Uid      int64
-	Gid      int64
-	Links    int64
-	Length   int64
-	Major    int64
-	Minor    int64
-	RMajor   int64
-	RMinor   int64
-	Check    int64
-	ModTime  time.Time
-	Filename string
-}
-
-func (h Header) User() string {
-	i := strconv.FormatInt(h.Uid, 10)
-	u, err := user.LookupId(i)
-	if err != nil {
-		return i
-	}
-	return u.Username
-}
-
-func (h Header) Group() string {
-	i := strconv.FormatInt(h.Gid, 10)
-	g, err := user.LookupGroupId(i)
-	if err != nil {
-		return i
-	}
-	return g.Name
-}
-
 type Writer struct {
 	inner  io.Writer
 	curr   io.Writer
@@ -77,7 +44,7 @@ func NewWriter(w io.Writer) *Writer {
 	return &Writer{inner: w}
 }
 
-func (w *Writer) WriteHeader(h *Header) error {
+func (w *Writer) WriteHeader(h *tape.Header) error {
 	if err := w.Flush(); err != nil {
 		w.err = err
 		return err
@@ -129,7 +96,7 @@ func (w *Writer) Close() error {
 		w.err = err
 		return w.err
 	}
-	h := Header{Filename: trailer}
+	h := tape.Header{Filename: trailer}
 	if err := w.writeHeader(&h, true); err != nil {
 		w.err = err
 		return err
@@ -141,7 +108,7 @@ func (w *Writer) Close() error {
 	return w.err
 }
 
-func (w *Writer) writeHeader(h *Header, trailing bool) error {
+func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 	buf := new(bytes.Buffer)
 	z := int64(len(h.Filename)) + 1
 
@@ -189,7 +156,7 @@ func NewReader(r io.Reader) *Reader {
 	return &Reader{inner: bufio.NewReader(r)}
 }
 
-func (r *Reader) Next() (*Header, error) {
+func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -217,9 +184,9 @@ func (r *Reader) Next() (*Header, error) {
 	return h, nil
 }
 
-func (r *Reader) next() (*Header, error) {
+func (r *Reader) next() (*tape.Header, error) {
 	var (
-		h Header
+		h tape.Header
 		z int64
 	)
 	if err := readMagic(r.inner); err != nil {
