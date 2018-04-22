@@ -1,10 +1,29 @@
 package tape
 
 import (
+	"errors"
+	"io"
 	"os/user"
 	"strconv"
 	"time"
 )
+
+var (
+	ErrMagic       = errors.New("tape: Invalid Magic")
+	ErrTooShort    = errors.New("tape: write too short")
+	ErrTooLong     = errors.New("tape: write too long")
+	ErrUnsupported = errors.New("tape: unsupported format")
+)
+
+type Reader interface {
+	io.Reader
+	Next() (*Header, error)
+}
+
+type Writer interface {
+	io.WriteCloser
+	WriteHeader(*Header) error
+}
 
 type Header struct {
 	Inode    int64
