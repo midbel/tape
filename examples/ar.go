@@ -56,6 +56,7 @@ func writeTo(a, p string, e bool) {
 		if i.IsDir() {
 			return nil
 		}
+		log.Println(i.Mode(), int(i.Mode()))
 		h := ar.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
