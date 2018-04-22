@@ -395,9 +395,11 @@ func extractAR(file, datadir string) error {
 		}
 		r := bufio.NewReader(&buf)
 		if g, err := gzip.NewReader(r); err == nil {
-			var other bytes.Buffer
-			io.Copy(&other, g)
-			io.Copy(&buf, &other)
+			bs := make([]byte, h.Length)
+			if _, err := io.ReadFull(g, bs); err != nil {
+				return err
+			}
+			buf.Write(bs)
 		} else {
 			r.Reset(&buf)
 		}
@@ -430,18 +432,18 @@ func extractCPIO(file, datadir string) error {
 		}
 		r := bufio.NewReader(&buf)
 		if g, err := gzip.NewReader(r); err == nil {
-			var other bytes.Buffer
-			io.Copy(&other, g)
-			io.Copy(&buf, &other)
+			bs := make([]byte, h.Length)
+			if _, err := io.ReadFull(g, bs); err != nil {
+				return err
+			}
+			buf.Write(bs)
 		} else {
 			r.Reset(&buf)
 		}
 		p := filepath.Join(datadir, h.Filename)
 		dir, _ := filepath.Split(h.Filename)
-		if dir != "" {
-			if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
-				return err
-			}
+		if err := os.MkdirAll(dir, 0755); dir != "" && err != nil && !os.IsExist(err) {
+			return err
 		}
 		if err := ioutil.WriteFile(p, buf.Bytes(), os.FileMode(h.Mode)); err != nil {
 			return err
