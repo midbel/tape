@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path"
 	"strconv"
 	"strings"
@@ -31,6 +32,24 @@ type Header struct {
 	Length   int64
 	ModTime  time.Time
 	Filename string
+}
+
+func (h Header) User() string {
+	i := strconv.FormatInt(h.Uid, 10)
+	u, err := user.LookupId(i)
+	if err != nil {
+		return i
+	}
+	return u.Username
+}
+
+func (h Header) Group() string {
+	i := strconv.FormatInt(h.Gid, 10)
+	g, err := user.LookupGroupId(i)
+	if err != nil {
+		return i
+	}
+	return g.Name
 }
 
 type Writer struct {
@@ -212,7 +231,7 @@ func readFilename(r io.Reader, h *Header) error {
 	if err != nil {
 		return err
 	}
-	h.Filename = string(bs)
+	h.Filename = strings.TrimRight(string(bs), "/")
 	return nil
 }
 
@@ -251,7 +270,7 @@ func readFileInfos(r io.Reader, h *Header) error {
 	if bs, err := readHeaderField(r, 8); err != nil {
 		return err
 	} else {
-		i, err := strconv.ParseInt(string(bs), 0, 64)
+		i, err := strconv.ParseInt(string(bs), 8, 64)
 		if err != nil {
 			return err
 		}
