@@ -20,29 +20,26 @@ import (
 const pattern = "%s\t%s\t%s\t%d\t%s\t%s"
 
 const (
-	dateYear = "Jan 02  2006"
-	dateTime = "Jan 02 15:05"
+	dateYear  = "Jan 02  2006"
+	dateTime  = "Jan 02 15:05"
+	isoFormat = "2006-01-02T15:05:04"
 )
-
-type reader interface {
-	io.Reader
-	Next() (*tape.Header, error)
-}
 
 func runList(cmd *cli.Command, args []string) error {
 	block := cmd.Flag.String("b", "", "block")
-
+	iso := cmd.Flag.Bool("i", false, "iso format")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	var open func(io.Reader) (reader, error)
+
+	var open OpenFunc
 	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 	case ".cpio":
-		open = func(r io.Reader) (reader, error) {
+		open = func(r io.Reader) (tape.Reader, error) {
 			return cpio.NewReader(r), nil
 		}
 	case ".ar":
-		open = func(r io.Reader) (reader, error) {
+		open = func(r io.Reader) (tape.Reader, error) {
 			return ar.NewReader(r)
 		}
 	default:
@@ -53,10 +50,13 @@ func runList(cmd *cli.Command, args []string) error {
 		return err
 	}
 	sort.Slice(hs, func(i, j int) bool {
-		return hs[i].Filename < hs[j].Filename
+		if !*iso {
+			return hs[i].Filename < hs[j].Filename
+		}
+		return hs[i].ModTime.Before(hs[i].ModTime)
 	})
 
-	p := Print(*block)
+	p := Print(*block, *iso)
 	defer p.Flush()
 	for _, h := range hs {
 		p.Print(h)
@@ -64,7 +64,7 @@ func runList(cmd *cli.Command, args []string) error {
 	return nil
 }
 
-func listHeaders(file string, open func(io.Reader) (reader, error)) ([]*tape.Header, error) {
+func listHeaders(file string, open OpenFunc) ([]*tape.Header, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -76,16 +76,15 @@ func listHeaders(file string, open func(io.Reader) (reader, error)) ([]*tape.Hea
 	}
 	var hs []*tape.Header
 	for {
-		h, err := r.Next()
-		switch err {
+		switch h, err := r.Next(); err {
 		case nil:
 			hs = append(hs, h)
+			if _, err := io.CopyN(ioutil.Discard, r, h.Length); err != nil {
+				return nil, err
+			}
 		case io.EOF:
 			return hs, nil
 		default:
-			return nil, err
-		}
-		if _, err := io.CopyN(ioutil.Discard, r, h.Length); err != nil {
 			return nil, err
 		}
 	}
@@ -99,7 +98,7 @@ type printer struct {
 	coeff int64
 }
 
-func Print(block string) *printer {
+func Print(block string, iso bool) *printer {
 	var p printer
 
 	switch block {
@@ -112,18 +111,23 @@ func Print(block string) *printer {
 	case "G", "g":
 		p.coeff = 1024 * 1024 * 1024
 	}
-	p.when = time.Now()
 	p.writer = tabwriter.NewWriter(os.Stdout, 6, 2, 2, ' ', 0)
 	p.Logger = log.New(p.writer, "", 0)
+	if !iso {
+		p.when = time.Now()
+	}
 
 	return &p
 }
 
 func (p *printer) Print(h *tape.Header) {
 	var f string
-	if p.when.Year() == h.ModTime.Year() {
+	switch {
+	case p.when.IsZero():
+		f = isoFormat
+	case p.when.Year() == h.ModTime.Year():
 		f = dateTime
-	} else {
+	default:
 		f = dateYear
 	}
 	m := strings.Join(parseMode(h.Mode), "")

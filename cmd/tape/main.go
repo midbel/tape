@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"text/template"
 
 	"github.com/midbel/cli"
+	"github.com/midbel/tape"
 )
 
 type ErrNotSupported string
@@ -19,6 +21,8 @@ func (e ErrNotSupported) Error() string {
 	}
 	return fmt.Sprintf("tape: unsupported archive type %s", v)
 }
+
+type OpenFunc func(io.Reader) (tape.Reader, error)
 
 var commands = []*cli.Command{
 	{
