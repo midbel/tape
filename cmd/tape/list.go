@@ -24,35 +24,31 @@ const (
 	dateTime = "Jan 02 15:05"
 )
 
+type reader interface {
+	io.Reader
+	Next() (*tape.Header, error)
+}
+
 func runList(cmd *cli.Command, args []string) error {
 	block := cmd.Flag.String("b", "", "block")
 
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	var coeff int64
-	switch *block {
-	default:
-		coeff = 1
-	case "K", "k":
-		coeff = 1024
-	case "M", "m":
-		coeff = 1024 * 1024
-	case "G", "g":
-		coeff = 1024 * 1024 * 1024
-	}
-	var (
-		err error
-		hs  []*tape.Header
-	)
+	var open func(io.Reader) (reader, error)
 	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
 	case ".cpio":
-		hs, err = listCPIO(cmd.Flag.Arg(0), coeff)
+		open = func(r io.Reader) (reader, error) {
+			return cpio.NewReader(r), nil
+		}
 	case ".ar":
-		hs, err = listAR(cmd.Flag.Arg(0), coeff)
+		open = func(r io.Reader) (reader, error) {
+			return ar.NewReader(r)
+		}
 	default:
 		return ErrNotSupported(e)
 	}
+	hs, err := listHeaders(cmd.Flag.Arg(0), open)
 	if err != nil {
 		return err
 	}
@@ -60,7 +56,7 @@ func runList(cmd *cli.Command, args []string) error {
 		return hs[i].Filename < hs[j].Filename
 	})
 
-	p := Print()
+	p := Print(*block)
 	defer p.Flush()
 	for _, h := range hs {
 		p.Print(h)
@@ -68,19 +64,19 @@ func runList(cmd *cli.Command, args []string) error {
 	return nil
 }
 
-func listAR(file string, coeff int64) ([]*tape.Header, error) {
+func listHeaders(file string, open func(io.Reader) (reader, error)) ([]*tape.Header, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	a, err := ar.NewReader(f)
+	r, err := open(f)
 	if err != nil {
 		return nil, err
 	}
 	var hs []*tape.Header
 	for {
-		h, err := a.Next()
+		h, err := r.Next()
 		switch err {
 		case nil:
 			hs = append(hs, h)
@@ -89,32 +85,7 @@ func listAR(file string, coeff int64) ([]*tape.Header, error) {
 		default:
 			return nil, err
 		}
-		if _, err := io.CopyN(ioutil.Discard, a, h.Length); err != nil {
-			return nil, err
-		}
-	}
-}
-
-func listCPIO(file string, coeff int64) ([]*tape.Header, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	c := cpio.NewReader(f)
-
-	var hs []*tape.Header
-	for {
-		h, err := c.Next()
-		switch err {
-		case nil:
-			hs = append(hs, h)
-		case io.EOF:
-			return hs, nil
-		default:
-			return nil, err
-		}
-		if _, err := io.CopyN(ioutil.Discard, c, h.Length); err != nil {
+		if _, err := io.CopyN(ioutil.Discard, r, h.Length); err != nil {
 			return nil, err
 		}
 	}
@@ -122,20 +93,30 @@ func listCPIO(file string, coeff int64) ([]*tape.Header, error) {
 
 type printer struct {
 	*log.Logger
-	when   time.Time
 	writer *tabwriter.Writer
+
+	when  time.Time
+	coeff int64
 }
 
-func Print() *printer {
-	w := tabwriter.NewWriter(os.Stdout, 6, 2, 2, ' ', 0)
-	logger := log.New(w, "", 0)
+func Print(block string) *printer {
+	var p printer
 
-	p := &printer{
-		Logger: logger,
-		when:   time.Now(),
-		writer: w,
+	switch block {
+	default:
+		p.coeff = 1
+	case "K", "k":
+		p.coeff = 1024
+	case "M", "m":
+		p.coeff = 1024 * 1024
+	case "G", "g":
+		p.coeff = 1024 * 1024 * 1024
 	}
-	return p
+	p.when = time.Now()
+	p.writer = tabwriter.NewWriter(os.Stdout, 6, 2, 2, ' ', 0)
+	p.Logger = log.New(p.writer, "", 0)
+
+	return &p
 }
 
 func (p *printer) Print(h *tape.Header) {
@@ -146,7 +127,7 @@ func (p *printer) Print(h *tape.Header) {
 		f = dateYear
 	}
 	m := strings.Join(parseMode(h.Mode), "")
-	p.Logger.Printf(pattern, m, h.User(), h.Group(), h.Length, h.ModTime.Format(f), h.Filename)
+	p.Logger.Printf(pattern, m, h.User(), h.Group(), h.Length/p.coeff, h.ModTime.Format(f), h.Filename)
 }
 
 func (p *printer) Flush() {
