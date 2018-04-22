@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
-  "bytes"
-  "compress/gzip"
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -80,7 +80,7 @@ func usage() {
 }
 
 func runCreate(cmd *cli.Command, args []string) error {
-  compress := cmd.Flag.Bool("c", false, "compress")
+	compress := cmd.Flag.Bool("c", false, "compress")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -110,17 +110,23 @@ func runCreate(cmd *cli.Command, args []string) error {
 }
 
 func runExtract(cmd *cli.Command, args []string) error {
+	datadir := cmd.Flag.String("d", os.TempDir(), "datadir")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
 	var err error
-	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
-	case ".cpio":
-		err = extractCPIO()
-	case ".ar":
-		err = extractAR()
-	default:
-		return fmt.Errorf("tape: can not extract %s archive", e)
+	for _, a := range cmd.Flag.Args() {
+		switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
+		case ".cpio":
+			err = extractCPIO(a, *datadir)
+		case ".ar":
+			err = extractAR(a, *datadir)
+		default:
+			return fmt.Errorf("tape: can not extract %s archive", e)
+		}
+		if err != nil {
+			break
+		}
 	}
 	return err
 }
@@ -173,25 +179,25 @@ func createAR(a string, files []string, compress bool) error {
 		if err != nil {
 			return err
 		}
-    var buf bytes.Buffer
-    if compress {
-      g := gzip.NewWriter(&buf)
-      if _, err := io.Copy(g, f); err != nil {
-        return err
-      }
-      if err := g.Close(); err != nil {
-        return err
-      }
-    } else {
-      if _, err := io.Copy(&buf, f); err != nil {
-        return err
-      }
-    }
+		var buf bytes.Buffer
+		if compress {
+			g := gzip.NewWriter(&buf)
+			if _, err := io.Copy(g, f); err != nil {
+				return err
+			}
+			if err := g.Close(); err != nil {
+				return err
+			}
+		} else {
+			if _, err := io.Copy(&buf, f); err != nil {
+				return err
+			}
+		}
 		h := ar.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
-      Length:   int64(buf.Len()),
+			Length:   int64(buf.Len()),
 		}
 		if i, ok := i.Sys().(*syscall.Stat_t); ok {
 			h.Uid, h.Gid = int64(i.Uid), int64(i.Gid)
@@ -225,25 +231,25 @@ func createCPIO(a string, files []string, compress bool) error {
 		if err != nil {
 			return err
 		}
-    var buf bytes.Buffer
-    if compress {
-      g := gzip.NewWriter(&buf)
-      if _, err := io.Copy(g, f); err != nil {
-        return err
-      }
-      if err := g.Close(); err != nil {
-        return err
-      }
-    } else {
-      if _, err := io.Copy(&buf, f); err != nil {
-        return err
-      }
-    }
+		var buf bytes.Buffer
+		if compress {
+			g := gzip.NewWriter(&buf)
+			if _, err := io.Copy(g, f); err != nil {
+				return err
+			}
+			if err := g.Close(); err != nil {
+				return err
+			}
+		} else {
+			if _, err := io.Copy(&buf, f); err != nil {
+				return err
+			}
+		}
 		h := cpio.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
-      Length:   int64(buf.Len()),
+			Length:   int64(buf.Len()),
 		}
 		if i, ok := i.Sys().(*syscall.Stat_t); ok {
 			h.Uid = int64(i.Uid)
@@ -364,8 +370,85 @@ func listCPIO(file, block string, verbose bool) error {
 	return nil
 }
 
-func extractAR() error   { return nil }
-func extractCPIO() error { return nil }
+func extractAR(file, datadir string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	a, err := ar.NewReader(f)
+	if err != nil {
+		return err
+	}
+	for {
+		h, err := a.Next()
+		switch err {
+		case io.EOF:
+			return nil
+		case nil:
+		default:
+			return err
+		}
+		var buf bytes.Buffer
+		if _, err := io.CopyN(&buf, a, h.Length); err != nil {
+			return err
+		}
+		r := bufio.NewReader(&buf)
+		if g, err := gzip.NewReader(r); err == nil {
+			var other bytes.Buffer
+			io.Copy(&other, g)
+			io.Copy(&buf, &other)
+		} else {
+			r.Reset(&buf)
+		}
+		p := filepath.Join(datadir, h.Filename)
+		if err := ioutil.WriteFile(p, buf.Bytes(), os.FileMode(h.Mode)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func extractCPIO(file, datadir string) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	c := cpio.NewReader(f)
+	for {
+		h, err := c.Next()
+		switch err {
+		case io.EOF:
+			return nil
+		case nil:
+		default:
+			return err
+		}
+		var buf bytes.Buffer
+		if _, err := io.CopyN(&buf, c, h.Length); err != nil {
+			return err
+		}
+		r := bufio.NewReader(&buf)
+		if g, err := gzip.NewReader(r); err == nil {
+			var other bytes.Buffer
+			io.Copy(&other, g)
+			io.Copy(&buf, &other)
+		} else {
+			r.Reset(&buf)
+		}
+		p := filepath.Join(datadir, h.Filename)
+		dir, _ := filepath.Split(h.Filename)
+		if dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
+				return err
+			}
+		}
+		if err := ioutil.WriteFile(p, buf.Bytes(), os.FileMode(h.Mode)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func printHeaderCPIO(w *log.Logger, h *cpio.Header) {
 	n := time.Now()
