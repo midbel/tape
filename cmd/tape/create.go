@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,7 +17,6 @@ import (
 func runCreate(cmd *cli.Command, args []string) error {
 	// recurse := cmd.Flag.Bool("r", false, "recurse")
 	preserve := cmd.Flag.Bool("p", false, "preserve")
-	compress := cmd.Flag.Bool("c", false, "compress")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -36,114 +33,44 @@ func runCreate(cmd *cli.Command, args []string) error {
 		args := cmd.Flag.Args()
 		files = args[1:]
 	}
-	var err error
-	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
+	f, err := os.Create(cmd.Flag.Arg(0))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var w tape.Writer
+	switch e := filepath.Ext(f.Name()); e {
 	case ".cpio":
-		err = createCPIO(cmd.Flag.Arg(0), files, *compress, *preserve)
+		w = cpio.NewWriter(f)
 	case ".ar":
-		err = createAR(cmd.Flag.Arg(0), files, *compress, *preserve)
+		a, err := ar.NewWriter(f)
+		if err != nil {
+			return err
+		}
+		w = a
 	default:
 		return ErrNotSupported(e)
 	}
-	return err
+	return createArchive(w, files, *preserve)
 }
 
-func createAR(a string, files []string, compress, preserve bool) error {
-	f, err := os.Create(a)
-	if err != nil {
-		return err
-	}
-	w, err := ar.NewWriter(f)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		w.Close()
-		f.Close()
-	}()
+func createArchive(w tape.Writer, files []string, preserve bool) error {
+	defer w.Close()
 	for _, f := range files {
-		f, err := os.Open(f)
+		r, err := os.Open(f)
 		if err != nil {
 			return err
 		}
-		i, err := f.Stat()
+		i, err := r.Stat()
 		if err != nil {
 			return err
-		}
-		var buf bytes.Buffer
-		if compress {
-			g := gzip.NewWriter(&buf)
-			if _, err := io.Copy(g, f); err != nil {
-				return err
-			}
-			if err := g.Close(); err != nil {
-				return err
-			}
-		} else {
-			if _, err := io.Copy(&buf, f); err != nil {
-				return err
-			}
 		}
 		h := tape.Header{
 			Filename: i.Name(),
 			ModTime:  i.ModTime(),
 			Mode:     int64(i.Mode()),
-			Length:   int64(buf.Len()),
-		}
-		if i, ok := i.Sys().(*syscall.Stat_t); ok && preserve {
-			h.Uid, h.Gid = int64(i.Uid), int64(i.Gid)
-		} else {
-			h.Uid, h.Gid = int64(os.Geteuid()), int64(os.Getgid())
-			h.ModTime = time.Now()
-		}
-		if err := w.WriteHeader(&h); err != nil {
-			return err
-		}
-		if _, err := io.Copy(w, &buf); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func createCPIO(a string, files []string, compress, preserve bool) error {
-	f, err := os.Create(a)
-	if err != nil {
-		return err
-	}
-	w := cpio.NewWriter(f)
-	defer func() {
-		w.Close()
-		f.Close()
-	}()
-	for _, f := range files {
-		f, err := os.Open(f)
-		if err != nil {
-			return err
-		}
-		i, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		var buf bytes.Buffer
-		if compress {
-			g := gzip.NewWriter(&buf)
-			if _, err := io.Copy(g, f); err != nil {
-				return err
-			}
-			if err := g.Close(); err != nil {
-				return err
-			}
-		} else {
-			if _, err := io.Copy(&buf, f); err != nil {
-				return err
-			}
-		}
-		h := tape.Header{
-			Filename: i.Name(),
-			ModTime:  i.ModTime(),
-			Mode:     int64(i.Mode()),
-			Length:   int64(buf.Len()),
+			Length:   i.Size(),
 		}
 		if i, ok := i.Sys().(*syscall.Stat_t); ok {
 			h.Uid = int64(i.Uid)
@@ -160,10 +87,9 @@ func createCPIO(a string, files []string, compress, preserve bool) error {
 		if err := w.WriteHeader(&h); err != nil {
 			return err
 		}
-		if _, err := io.Copy(w, &buf); err != nil {
+		if _, err := io.Copy(w, r); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
