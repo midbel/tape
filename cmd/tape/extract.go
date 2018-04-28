@@ -55,19 +55,18 @@ func extractArchive(r tape.Reader, datadir string, members []string, preserve bo
 		h, err := r.Next()
 		switch err {
 		case nil:
-			ix := ms.Search(h.Filename)
-			if ms.Len() > 0 && (ix >= ms.Len() || ms[ix] != h.Filename) {
-				_, err := io.CopyN(ioutil.Discard, r, h.Length)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-			log.Println(ix, ms, h.Filename)
 		case io.EOF:
 			return nil
 		default:
 			return err
+		}
+		ix := ms.Search(h.Filename)
+		if ms.Len() > 0 && (ix >= ms.Len() || ms[ix] != h.Filename) {
+			_, err := io.CopyN(ioutil.Discard, r, h.Length)
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		p := filepath.Join(datadir, h.Filename)
 		w, err := os.Create(p)
