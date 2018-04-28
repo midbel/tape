@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
-	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -110,31 +109,6 @@ type Reader struct {
 	inner *bufio.Reader
 	curr  io.Reader
 	err   error
-}
-
-func List(file string) ([]*tape.Header, error) {
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	r, err := NewReader(f)
-	if err != nil {
-		return nil, err
-	}
-	var hs []*tape.Header
-	for {
-		h, err := r.Next()
-		if err == io.EOF {
-			break
-		}
-		hs = append(hs, h)
-		if _, err := io.CopyN(ioutil.Discard, r, int64(h.Length)); err != nil {
-			return nil, err
-		}
-	}
-	return hs, nil
 }
 
 func NewReader(r io.Reader) (*Reader, error) {

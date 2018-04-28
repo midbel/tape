@@ -27,14 +27,14 @@ type OpenFunc func(io.Reader) (tape.Reader, error)
 var commands = []*cli.Command{
 	{
 		Run:   runCreate,
-		Usage: "create [-c] [-p] <archive> <file,...>",
+		Usage: "create [-p] <archive> <file,...>",
 		Alias: []string{"make"},
 		Short: "create a new cpio or ar archives",
 		Desc:  "",
 	},
 	{
 		Run:   runExtract,
-		Usage: "extract [-p] <archive,...>",
+		Usage: "extract [-p] [-d] <archive> <member,...>",
 		Short: "extract the content of cpio and/or ar archives",
 		Desc:  "",
 	},
