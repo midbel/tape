@@ -287,11 +287,11 @@ func (f *fileWriter) Write(bs []byte) (int, error) {
 	case len(bs) > f.size:
 		rest = f.size
 	case len(bs)-f.remaining < 0:
-		rest = f.remaining
+		rest = len(bs)
 	default:
 	}
 	if rest > 0 {
-		bs = bs[:rest]
+		bs, rest = bs[:rest], 0
 	}
 	n, err := f.writer.Write(bs)
 	f.remaining -= n

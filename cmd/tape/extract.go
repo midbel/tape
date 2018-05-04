@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
