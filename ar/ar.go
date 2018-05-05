@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	magic    = []byte("!<arch>")
+	Magic    = []byte("!<arch>")
 	linefeed = []byte{0x60, 0x0A}
 )
 
@@ -32,7 +32,7 @@ type Writer struct {
 }
 
 func NewWriter(w io.Writer) (*Writer, error) {
-	if _, err := w.Write(magic); err != nil {
+	if _, err := w.Write(Magic); err != nil {
 		return nil, err
 	}
 	if _, err := w.Write([]byte{linefeed[1]}); err != nil {
@@ -113,11 +113,11 @@ type Reader struct {
 
 func NewReader(r io.Reader) (*Reader, error) {
 	rs := bufio.NewReader(r)
-	bs, err := rs.Peek(len(magic))
+	bs, err := rs.Peek(len(Magic))
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(bs, magic) {
+	if !bytes.Equal(bs, Magic) {
 		return nil, ErrMagic
 	}
 	if _, err := rs.Discard(len(bs) + 1); err != nil {
