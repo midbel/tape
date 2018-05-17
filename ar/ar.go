@@ -3,7 +3,6 @@ package ar
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"io"
 	"io/ioutil"
 	"path"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/midbel/tape"
+	"github.com/midbel/tape/internal/rw"
 )
 
 var (
@@ -19,15 +19,9 @@ var (
 	linefeed = []byte{0x60, 0x0A}
 )
 
-var (
-	ErrMagic    = errors.New("ar: Invalid Magic")
-	ErrTooShort = errors.New("ar: write too short")
-	ErrTooLong  = errors.New("ar: write too long")
-)
-
 type Writer struct {
 	inner io.Writer
-	curr  io.Writer
+	curr  rw.Writer
 	err   error
 }
 
@@ -64,11 +58,7 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 		w.err = err
 		return err
 	}
-	w.curr = &fileWriter{
-		writer:    w.inner,
-		remaining: int(h.Length),
-		size:      int(h.Length),
-	}
+	w.curr = rw.NewWriter(w.inner, int(h.Length))
 	return nil
 }
 
@@ -79,11 +69,10 @@ func (w *Writer) Flush() error {
 	if w.err != nil {
 		return w.err
 	}
-	c := w.curr.(*fileWriter)
-	if c == nil || c.remaining > 0 {
-		return ErrTooShort
+	if w.curr == nil || w.curr.Available() > 0 {
+		return tape.ErrTooShort
 	}
-	if mod := c.size % 2; mod == 1 {
+	if mod := w.curr.Size() % 2; mod == 1 {
 		_, w.err = w.inner.Write(linefeed[1:])
 	}
 	w.curr = nil
@@ -95,7 +84,7 @@ func (w *Writer) Write(bs []byte) (int, error) {
 		return 0, w.err
 	}
 	n, err := w.curr.Write(bs)
-	if err != nil && err != ErrTooLong {
+	if err != nil && err != tape.ErrTooLong {
 		w.err = err
 	}
 	return n, err
@@ -107,7 +96,7 @@ func (w *Writer) Close() error {
 
 type Reader struct {
 	inner *bufio.Reader
-	curr  io.Reader
+	curr  rw.Reader
 	err   error
 }
 
@@ -118,7 +107,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 		return nil, err
 	}
 	if !bytes.Equal(bs, Magic) {
-		return nil, ErrMagic
+		return nil, tape.ErrMagic
 	}
 	if _, err := rs.Discard(len(bs) + 1); err != nil {
 		return nil, err
@@ -155,11 +144,7 @@ func (r *Reader) next() (*tape.Header, error) {
 	if _, err := r.inner.Read(bs); err != nil || !bytes.Equal(bs, linefeed) {
 		return nil, err
 	}
-	r.curr = &fileReader{
-		reader:    r.inner,
-		remaining: int(h.Length),
-		size:      int(h.Length),
-	}
+	r.curr = rw.NewReader(r.inner, int(h.Length))
 	return &h, r.err
 }
 
@@ -247,56 +232,4 @@ func readHeaderField(r io.Reader, n int) ([]byte, error) {
 func writeHeaderField(w *bytes.Buffer, s string, n int) {
 	io.WriteString(w, s)
 	io.WriteString(w, strings.Repeat(" ", n-len(s)))
-}
-
-type fileReader struct {
-	reader          io.Reader
-	remaining, size int
-}
-
-func (f *fileReader) Read(bs []byte) (int, error) {
-	if f.remaining <= 0 {
-		if m := f.size % 2; f.size != 0 && m == 1 {
-			b := bufio.NewReader(f.reader)
-			b.ReadByte()
-			f.size = 0
-		}
-		return 0, io.EOF
-	}
-	if len(bs) > f.remaining {
-		bs = bs[:f.remaining]
-	}
-	n, err := f.reader.Read(bs)
-	f.remaining -= n
-	return n, err
-}
-
-type fileWriter struct {
-	writer          io.Writer
-	remaining, size int
-}
-
-func (f *fileWriter) Write(bs []byte) (int, error) {
-	if f.remaining < 0 {
-		return 0, ErrTooLong
-	}
-	var rest int
-	switch {
-	case len(bs) == 0:
-		return 0, nil
-	case len(bs) > f.size:
-		rest = f.size
-	case len(bs)-f.remaining < 0:
-		rest = len(bs)
-	default:
-	}
-	if rest > 0 {
-		bs, rest = bs[:rest], 0
-	}
-	n, err := f.writer.Write(bs)
-	f.remaining -= n
-	if rest > 0 {
-		return n, ErrTooLong
-	}
-	return n, err
 }
