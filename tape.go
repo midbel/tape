@@ -25,6 +25,25 @@ type Writer interface {
 	WriteHeader(*Header) error
 }
 
+func Convert(r Reader, w Writer) error {
+	for {
+		h, err := r.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if err := w.WriteHeader(h); err != nil {
+			return err
+		}
+		if _, err := io.CopyN(w, r, h.Length); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type Header struct {
 	Inode    int64
 	Mode     int64
