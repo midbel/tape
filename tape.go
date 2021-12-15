@@ -29,7 +29,7 @@ func Convert(r Reader, w Writer) error {
 	for {
 		h, err := r.Next()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err
@@ -61,19 +61,23 @@ type Header struct {
 }
 
 func (h Header) User() string {
-	i := strconv.FormatInt(h.Uid, 10)
-	u, err := user.LookupId(i)
+	var (
+		id     = strconv.FormatInt(h.Uid, 10)
+		u, err = user.LookupId(id)
+	)
 	if err != nil {
-		return i
+		return id
 	}
 	return u.Username
 }
 
 func (h Header) Group() string {
-	i := strconv.FormatInt(h.Gid, 10)
-	g, err := user.LookupGroupId(i)
+	var (
+		id     = strconv.FormatInt(h.Gid, 10)
+		g, err = user.LookupGroupId(id)
+	)
 	if err != nil {
-		return i
+		return id
 	}
 	return g.Name
 }

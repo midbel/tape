@@ -3,6 +3,7 @@ package cpio
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -38,12 +39,10 @@ func NewWriter(w io.Writer) *Writer {
 }
 
 func (w *Writer) WriteHeader(h *tape.Header) error {
-	if err := w.Flush(); err != nil {
-		w.err = err
-		return err
+	if w.err = w.Flush(); w.err != nil {
+		return w.err
 	}
-	if err := w.writeHeader(h, false); err != nil {
-		w.err = err
+	if w.err = w.writeHeader(h, false); w.err != nil {
 		return w.err
 	}
 	w.curr = rw.NewWriter(w.inner, int(h.Length))
@@ -55,17 +54,14 @@ func (w *Writer) Write(bs []byte) (int, error) {
 		return 0, w.err
 	}
 	n, err := w.curr.Write(bs)
-	if err != nil && err != tape.ErrTooLong {
+	if err != nil && !errors.Is(err, tape.ErrTooLong) {
 		w.err = err
 	}
 	return n, err
 }
 
 func (w *Writer) Flush() error {
-	if w.curr == nil {
-		return nil
-	}
-	if w.err != nil {
+	if w.curr == nil || w.err != nil {
 		return w.err
 	}
 	if w.curr == nil || w.curr.Available() > 0 {
@@ -80,14 +76,14 @@ func (w *Writer) Flush() error {
 }
 
 func (w *Writer) Close() error {
-	if err := w.Flush(); err != nil {
-		w.err = err
+	if w.err = w.Flush(); w.err != nil {
 		return w.err
 	}
-	h := tape.Header{Filename: trailer}
-	if err := w.writeHeader(&h, true); err != nil {
-		w.err = err
-		return err
+	h := tape.Header{
+		Filename: trailer,
+	}
+	if w.err = w.writeHeader(&h, true); w.err != nil {
+		return w.err
 	}
 	if mod := w.blocks % blockSize; mod != 0 {
 		zs := make([]byte, blockSize-mod)
@@ -97,28 +93,30 @@ func (w *Writer) Close() error {
 }
 
 func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
-	buf := new(bytes.Buffer)
-	z := int64(len(h.Filename)) + 1
+	var (
+		buf bytes.Buffer
+		z   = int64(len(h.Filename)) + 1
+	)
 
 	buf.Write(magicASCII)
-	writeHeaderInt(buf, h.Inode)
-	writeHeaderInt(buf, h.Mode)
-	writeHeaderInt(buf, h.Uid)
-	writeHeaderInt(buf, h.Gid)
-	writeHeaderInt(buf, h.Links)
+	writeHeaderInt(&buf, h.Inode)
+	writeHeaderInt(&buf, h.Mode)
+	writeHeaderInt(&buf, h.Uid)
+	writeHeaderInt(&buf, h.Gid)
+	writeHeaderInt(&buf, h.Links)
 	if t := h.ModTime; t.IsZero() {
-		writeHeaderInt(buf, 0)
+		writeHeaderInt(&buf, 0)
 	} else {
-		writeHeaderInt(buf, t.Unix())
+		writeHeaderInt(&buf, t.Unix())
 	}
-	writeHeaderInt(buf, h.Length)
-	writeHeaderInt(buf, h.Major)
-	writeHeaderInt(buf, h.Minor)
-	writeHeaderInt(buf, h.RMajor)
-	writeHeaderInt(buf, h.RMinor)
-	writeHeaderInt(buf, z)
-	writeHeaderInt(buf, 0)
-	writeFilename(buf, h.Filename)
+	writeHeaderInt(&buf, h.Length)
+	writeHeaderInt(&buf, h.Major)
+	writeHeaderInt(&buf, h.Minor)
+	writeHeaderInt(&buf, h.RMajor)
+	writeHeaderInt(&buf, h.RMinor)
+	writeHeaderInt(&buf, z)
+	writeHeaderInt(&buf, 0)
+	writeFilename(&buf, h.Filename)
 
 	w.blocks += headerLen + z
 	if mod := w.blocks % 4; mod != 0 && !trailing {
@@ -127,9 +125,7 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 		w.blocks += int64(n)
 	}
 
-	if _, err := io.Copy(w.inner, buf); err != nil {
-		w.err = err
-	}
+	_, w.err = io.Copy(w.inner, &buf)
 	return w.err
 }
 
@@ -155,7 +151,7 @@ func (r *Reader) Next() (*tape.Header, error) {
 	h, err := r.next()
 	if err != nil {
 		r.err = err
-		return nil, err
+		return nil, r.err
 	}
 
 	if h.Filename == trailer {
@@ -173,9 +169,8 @@ func (r *Reader) next() (*tape.Header, error) {
 		h tape.Header
 		z int64
 	)
-	if err := readMagic(r.inner); err != nil {
-		r.err = err
-		return nil, err
+	if r.err = readMagic(r.inner); r.err != nil {
+		return nil, r.err
 	}
 	h.Inode = readHeaderField(r.inner)
 	h.Mode = readHeaderField(r.inner)
@@ -191,10 +186,10 @@ func (r *Reader) next() (*tape.Header, error) {
 	z = readHeaderField(r.inner)
 	h.Check = readHeaderField(r.inner)
 	h.Filename = readFilename(r.inner, z)
+
 	if mod := (headerLen + z) % 4; mod != 0 {
-		_, err := r.inner.Discard(4 - int(mod))
-		if err != nil {
-			return nil, err
+		if _, r.err = r.inner.Discard(4 - int(mod)); r.err != nil {
+			return nil, r.err
 		}
 	}
 	return &h, nil
@@ -231,22 +226,21 @@ func readFilename(r io.Reader, n int64) string {
 }
 
 func readHeaderField(r io.Reader) int64 {
-	//TODO: check for rewrite with fmt.Fscanf()
 	bs := make([]byte, fieldLen)
 	if _, err := io.ReadFull(r, bs); err != nil {
 		return -1
 	}
-	i, err := strconv.ParseInt("0x"+string(bs), 0, 64)
+	i, err := strconv.ParseInt(string(bs), 0, 64)
 	if err != nil {
 		return -1
 	}
 	return i
 }
 
-func writeHeaderInt(w *bytes.Buffer, f int64) {
+func writeHeaderInt(w io.Writer, f int64) {
 	fmt.Fprintf(w, "%08x", uint64(f))
 }
 
-func writeFilename(w *bytes.Buffer, f string) {
-	io.WriteString(w, f+"\x00")
+func writeFilename(w io.Writer, f string) {
+	fmt.Fprint(w, f+"\x00")
 }

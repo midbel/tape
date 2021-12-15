@@ -3,8 +3,8 @@ package ar
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
-	"io/ioutil"
 	"path"
 	"strconv"
 	"strings"
@@ -29,7 +29,7 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	if _, err := w.Write(Magic); err != nil {
 		return nil, err
 	}
-	if _, err := w.Write([]byte{linefeed[1]}); err != nil {
+	if _, err := w.Write(linefeed[1:]); err != nil {
 		return nil, err
 	}
 	return &Writer{inner: w}, nil
@@ -44,29 +44,24 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 		return err
 	}
 
-	buf := new(bytes.Buffer)
-	writeHeaderField(buf, path.Base(h.Filename)+"/", 16)
-	writeHeaderField(buf, strconv.FormatInt(h.ModTime.Unix(), 10), 12)
-	writeHeaderField(buf, strconv.FormatInt(h.Uid, 10), 6)
-	writeHeaderField(buf, strconv.FormatInt(h.Gid, 10), 6)
-	writeHeaderField(buf, strconv.FormatInt(h.Mode, 8), 8)
-	writeHeaderField(buf, strconv.FormatInt(h.Length, 10), 10)
+	var buf bytes.Buffer
+	writeHeaderField(&buf, path.Base(h.Filename)+"/", 16)
+	writeHeaderField(&buf, strconv.FormatInt(h.ModTime.Unix(), 10), 12)
+	writeHeaderField(&buf, strconv.FormatInt(h.Uid, 10), 6)
+	writeHeaderField(&buf, strconv.FormatInt(h.Gid, 10), 6)
+	writeHeaderField(&buf, strconv.FormatInt(h.Mode, 8), 8)
+	writeHeaderField(&buf, strconv.FormatInt(h.Length, 10), 10)
 	buf.Write(linefeed)
 
-	_, err := io.Copy(w.inner, buf)
-	if err != nil {
-		w.err = err
-		return err
+	if _, w.err = io.Copy(w.inner, &buf); w.err != nil {
+		return w.err
 	}
 	w.curr = rw.NewWriter(w.inner, int(h.Length))
 	return nil
 }
 
 func (w *Writer) Flush() error {
-	if w.curr == nil {
-		return nil
-	}
-	if w.err != nil {
+	if w.curr == nil || w.err != nil {
 		return w.err
 	}
 	if w.curr == nil || w.curr.Available() > 0 {
@@ -84,10 +79,10 @@ func (w *Writer) Write(bs []byte) (int, error) {
 		return 0, w.err
 	}
 	n, err := w.curr.Write(bs)
-	if err != nil && err != tape.ErrTooLong {
+	if err != nil && !errors.Is(err, tape.ErrTooLong) {
 		w.err = err
 	}
-	return n, err
+	return n, w.err
 }
 
 func (w *Writer) Close() error {
@@ -101,8 +96,10 @@ type Reader struct {
 }
 
 func NewReader(r io.Reader) (*Reader, error) {
-	rs := bufio.NewReader(r)
-	bs, err := rs.Peek(len(Magic))
+	var (
+		rs      = bufio.NewReader(r)
+		bs, err = rs.Peek(len(Magic))
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -119,30 +116,27 @@ func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
-	h, err := r.next()
-	r.err = err
-	return h, r.err
+	return r.next()
 }
 
 func (r *Reader) next() (*tape.Header, error) {
 	if r.curr != nil {
-		io.Copy(ioutil.Discard, r.curr)
+		io.Copy(io.Discard, r.curr)
 	}
 
 	var h tape.Header
-	if err := readFilename(r.inner, &h); err != nil {
-		r.err = err
-		return nil, err
+	if r.err = readFilename(r.inner, &h); r.err != nil {
+		return nil, r.err
 	}
-	if err := readModTime(r.inner, &h); err != nil {
-		return nil, err
+	if r.err = readModTime(r.inner, &h); r.err != nil {
+		return nil, r.err
 	}
-	if err := readFileInfos(r.inner, &h); err != nil {
-		return nil, err
+	if r.err = readFileInfos(r.inner, &h); r.err != nil {
+		return nil, r.err
 	}
 	bs := make([]byte, len(linefeed))
-	if _, err := r.inner.Read(bs); err != nil || !bytes.Equal(bs, linefeed) {
-		return nil, err
+	if _, r.err = r.inner.Read(bs); r.err != nil || !bytes.Equal(bs, linefeed) {
+		return nil, r.err
 	}
 	r.curr = rw.NewReader(r.inner, int(h.Length))
 	return &h, r.err
@@ -153,7 +147,7 @@ func (r *Reader) Read(bs []byte) (int, error) {
 		return 0, r.err
 	}
 	n, err := r.curr.Read(bs)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		r.err = err
 	}
 	return n, err
@@ -229,7 +223,7 @@ func readHeaderField(r io.Reader, n int) ([]byte, error) {
 	return bytes.TrimSpace(bs), nil
 }
 
-func writeHeaderField(w *bytes.Buffer, s string, n int) {
+func writeHeaderField(w io.Writer, s string, n int) {
 	io.WriteString(w, s)
 	io.WriteString(w, strings.Repeat(" ", n-len(s)))
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"text/template"
@@ -62,10 +61,7 @@ Use {{.Name}} [command] -h for more information about its usage.
 `
 
 func main() {
-	log.SetFlags(0)
-	if err := cli.Run(commands, usage, nil); err != nil {
-		log.Fatalln(err)
-	}
+	cli.RunAndExit(commands, usage)
 }
 
 func usage() {
