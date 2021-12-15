@@ -26,14 +26,16 @@ const (
 )
 
 func runList(cmd *cli.Command, args []string) error {
-	block := cmd.Flag.String("b", "", "block")
-	iso := cmd.Flag.Bool("i", false, "iso format")
+	var (
+		block = cmd.Flag.String("b", "", "block")
+		iso   = cmd.Flag.Bool("i", false, "iso format")
+	)
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
 
 	var open OpenFunc
-	switch e := filepath.Ext(cmd.Flag.Arg(0)); e {
+	switch ext := filepath.Ext(cmd.Flag.Arg(0)); ext {
 	case ".cpio":
 		open = func(r io.Reader) (tape.Reader, error) {
 			return cpio.NewReader(r), nil

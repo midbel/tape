@@ -1,12 +1,11 @@
 package main
 
 import (
+	"errors"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
-	"syscall"
 	"time"
 
 	"github.com/midbel/cli"
@@ -16,8 +15,10 @@ import (
 )
 
 func runExtract(cmd *cli.Command, args []string) error {
-	preserve := cmd.Flag.Bool("p", false, "preserve")
-	datadir := cmd.Flag.String("d", os.TempDir(), "datadir")
+	var (
+		preserve = cmd.Flag.Bool("p", false, "preserve")
+		datadir  = cmd.Flag.String("d", os.TempDir(), "datadir")
+	)
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -43,58 +44,59 @@ func runExtract(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ms := cmd.Flag.Args()
-	return extractArchive(r, *datadir, ms[1:], *preserve)
+	args = cmd.Flag.Args()
+	return extractArchive(r, *datadir, args[1:], *preserve)
 }
 
 func extractArchive(r tape.Reader, datadir string, members []string, preserve bool) error {
-	ms := sort.StringSlice(members)
-	ms.Sort()
+	if len(members) == 0 {
+		return nil
+	}
+	sort.Strings(members)
 	for {
-		h, err := r.Next()
-		switch err {
-		case nil:
-		case io.EOF:
-			return nil
-		default:
-			return err
-		}
-		ix := ms.Search(h.Filename)
-		if ms.Len() > 0 && (ix >= ms.Len() || ms[ix] != h.Filename) {
-			_, err := io.CopyN(ioutil.Discard, r, h.Length)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		p := filepath.Join(datadir, h.Filename)
-		w, err := os.Create(p)
+		err := extractFile(r, datadir, members, preserve)
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			return err
 		}
-		if _, err := io.CopyN(w, r, h.Length); err != nil {
-			return err
-		}
-		if !preserve {
-			h.Uid, h.Gid = int64(os.Geteuid()), int64(os.Getgid())
-			h.ModTime = time.Now()
-		}
-		if err := updateFileInfo(p, h.Uid, h.Gid, h.ModTime.Unix()); err != nil {
-			return err
-		}
-	}
-}
-
-func updateFileInfo(p string, uid, gid, mod int64) error {
-	if err := syscall.Chown(p, int(uid), int(gid)); err != nil {
-		return err
-	}
-	t := syscall.Utimbuf{
-		Actime:  mod,
-		Modtime: mod,
-	}
-	if err := syscall.Utime(p, &t); err != nil {
-		return err
 	}
 	return nil
+}
+
+func extractFile(r tape.Reader, datadir string, members []string, preserve bool) error {
+	h, err := r.Next()
+	if err != nil {
+		return err
+	}
+	ix := sort.SearchStrings(members, h.Filename)
+	if ix >= len(members) || members[ix] != h.Filename {
+		_, err = io.CopyN(io.Discard, r, h.Length)
+		return err
+	}
+
+	file := filepath.Join(datadir, h.Filename)
+	w, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+
+	if _, err := io.CopyN(w, r, h.Length); err != nil {
+		return err
+	}
+
+	if !preserve {
+		h.Uid, h.Gid = int64(os.Geteuid()), int64(os.Getgid())
+		h.ModTime = time.Now()
+	}
+	return updateFileInfo(file, h.Uid, h.Gid, h.ModTime)
+}
+
+func updateFileInfo(file string, uid, gid int64, mod time.Time) error {
+	if err := os.Chown(file, int(uid), int(gid)); err != nil {
+		return err
+	}
+	return os.Chtimes(file, mod, mod)
 }
