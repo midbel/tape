@@ -32,7 +32,7 @@ func runExtract(cmd *cli.Command, args []string) error {
 	switch e := filepath.Ext(f.Name()); e {
 	case ".cpio":
 		r = cpio.NewReader(f)
-	case ".ar":
+	case ".ar", ".deb":
 		if a, e := ar.NewReader(f); e != nil {
 			err = e
 		} else {
