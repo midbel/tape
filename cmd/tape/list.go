@@ -40,12 +40,12 @@ func runList(cmd *cli.Command, args []string) error {
 		open = func(r io.Reader) (tape.Reader, error) {
 			return cpio.NewReader(r), nil
 		}
-	case ".ar":
+	case ".ar", ".deb":
 		open = func(r io.Reader) (tape.Reader, error) {
 			return ar.NewReader(r)
 		}
 	default:
-		return ErrNotSupported(e)
+		return ErrNotSupported(ext)
 	}
 	hs, err := listHeaders(cmd.Flag.Arg(0), open)
 	if err != nil {
