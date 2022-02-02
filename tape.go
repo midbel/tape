@@ -13,6 +13,7 @@ var (
 	ErrTooShort    = errors.New("tape: write too short")
 	ErrTooLong     = errors.New("tape: write too long")
 	ErrUnsupported = errors.New("tape: unsupported format")
+	ErrHeader      = errors.New("tape: invalid header")
 )
 
 type Reader interface {
