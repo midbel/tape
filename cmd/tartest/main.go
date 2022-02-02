@@ -1,6 +1,7 @@
 package main
 
 import (
+  "compress/gzip"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 )
 
 func main() {
+  apk := flag.Bool("a", false, "apk archive")
 	flag.Parse()
 
 	r, err := os.Open(flag.Arg(0))
@@ -20,16 +22,36 @@ func main() {
 	}
 	defer r.Close()
 
-	tr := tar.NewReader(r)
+  var read func(io.Reader) error = readBasic
+  if *apk {
+    read = readAPK
+  }
+  if err := read(r); err != nil {
+    fmt.Fprintln(os.Stderr, err)
+    os.Exit(1)
+  }
+}
+
+func readAPK(r io.Reader) error {
+  z, err := gzip.NewReader(r)
+  if err != nil {
+    return err
+  }
+  defer z.Close()
+  return readBasic(z)
+}
+
+func readBasic(r io.Reader) error {
+  tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+			return err
 		}
 		fmt.Printf("%+s (%c) %s -> %d\n", h.Name, h.Type, h.ModTime, h.Size)
 	}
+  return nil
 }

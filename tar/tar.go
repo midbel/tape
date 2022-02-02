@@ -22,7 +22,8 @@ const (
 	TypeChar              = '3'
 	TypeBlock             = '4'
 	TypeDir               = '5'
-	TypeExtended          = 'x'
+	TypeSingleEx          = 'x'
+	TypeGlobalEx          = 'g'
 )
 
 const (
