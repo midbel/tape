@@ -100,6 +100,29 @@ func (h *Header) merge(other *Header) {
 	if other == nil {
 		return
 	}
+	for k, v := range other.PaxHeaders {
+		h.PaxHeaders[k] = v
+		switch k {
+		case paxAtime:
+			h.AccessTime = other.AccessTime
+		case paxMtime:
+			h.ModTime = other.ModTime
+		case paxPath:
+			h.Name = other.Name
+		case paxLink:
+			h.LinkName = other.LinkName
+		case paxUser:
+			h.User = other.User
+		case paxGroup:
+			h.Group = other.Group
+		case paxSize:
+			h.Size = other.Size
+		case paxUid:
+			h.Uid = other.Uid
+		case paxGid:
+			h.Gid = other.Gid
+		}
+	}
 }
 
 type Reader struct {
@@ -152,6 +175,7 @@ func (r *Reader) Next() (*Header, error) {
 	}
 	hdr, err := r.next()
 	if err == nil {
+		r.read = 0
 		r.curr = io.LimitReader(r.inner, hdr.Size)
 	}
 	r.err = err
@@ -175,9 +199,7 @@ func (r *Reader) next() (*Header, error) {
 		}
 		pax = hdr
 	}
-	if pax != nil {
-
-	}
+	hdr.merge(pax)
 	return hdr, err
 }
 
@@ -217,7 +239,10 @@ func (r *Reader) readHeader() (*Header, error) {
 	if str, off = readString(block, off, lenUstar); str != ustar {
 		return &hdr, nil
 	}
-	_, off = readString(block, off, lenUstarVersion)
+	str, off = readString(block, off, lenUstarVersion)
+	if str != "" {
+		return nil, fmt.Errorf("%s: unsupported %s version", str, ustar)
+	}
 	hdr.User, off = readString(block, off, lenUser)
 	hdr.Group, off = readString(block, off, lenGroup)
 	hdr.DevMinor, off = readOctal(block, off, lenDevMinor)
@@ -225,37 +250,69 @@ func (r *Reader) readHeader() (*Header, error) {
 	if str, _ = readString(block, off, lenPrefix); str != "" {
 		hdr.Name = filepath.Join(str, hdr.Name)
 	}
-
-	if hdr.Type.isExtended() {
-		err := r.updateHeader(&hdr)
-		if err != nil {
-			return nil, err
-		}
+	if err := r.updateHeader(&hdr); err != nil {
+		return nil, err
 	}
 	return &hdr, nil
 }
 
 func (r *Reader) updateHeader(hdr *Header) error {
+	if !hdr.Type.isExtended() {
+		return nil
+	}
 	scan := bufio.NewScanner(io.LimitReader(r.inner, hdr.Size))
 	for scan.Scan() {
 		name, value, err := parsePaxRecord(scan.Text())
 		if err != nil {
 			return err
 		}
-		fmt.Println(name, value)
-    hdr.PaxHeaders[name] = value
+		hdr.PaxHeaders[name] = value
 		switch name {
 		default:
 		case paxAtime:
+			if value == "0" {
+				break
+			}
+			when, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			hdr.AccessTime = time.Unix(when, 0)
 		case paxMtime:
+			if value == "0" {
+				break
+			}
+			when, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			hdr.ModTime = time.Unix(when, 0)
 		case paxPath:
+			hdr.Name = value
 		case paxLink:
+			hdr.LinkName = value
 		case paxUser:
+			hdr.User = value
 		case paxGroup:
+			hdr.Group = value
 		case paxSize:
+			size, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			hdr.Size = size
 		case paxUid:
+			uid, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			hdr.Uid = int(uid)
 		case paxGid:
-		case paxCharset:
+			gid, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			hdr.Gid = int(gid)
 		}
 	}
 	discard(r.inner, blockSize-hdr.Size)

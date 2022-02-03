@@ -130,9 +130,9 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 }
 
 type Reader struct {
-	inner   *bufio.Reader
-	curr    io.Reader
-	err     error
+	inner *bufio.Reader
+	curr  io.Reader
+	err   error
 
 	read int
 }
@@ -205,8 +205,7 @@ func (r *Reader) next() (*tape.Header, error) {
 	h.Check = readHeaderField(r.inner)
 	h.Filename = readFilename(r.inner, z)
 
-
-	r.err = r.discard(int(headerLen+z))
+	r.err = r.discard(int(headerLen + z))
 	return &h, r.err
 }
 
@@ -215,7 +214,7 @@ func (r *Reader) discard(n int) error {
 	if pad == 0 {
 		return nil
 	}
-	n, err := r.inner.Discard(4-pad)
+	n, err := r.inner.Discard(4 - pad)
 	return err
 }
 
