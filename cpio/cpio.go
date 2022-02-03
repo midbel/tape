@@ -148,7 +148,7 @@ func (r *Reader) Read(bs []byte) (int, error) {
 		return 0, r.err
 	}
 	if r.curr == nil {
-		return 0, fmt.Errorf("cpio: invalid read")
+		return 0, tape.ErrRead
 	}
 	n, err := r.curr.Read(bs)
 	r.read += n

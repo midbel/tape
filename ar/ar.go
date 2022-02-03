@@ -4,9 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
-	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -46,7 +45,7 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 	}
 
 	var buf bytes.Buffer
-	writeHeaderField(&buf, path.Base(h.Filename)+"/", 16)
+	writeHeaderField(&buf, filepath.Base(h.Filename)+"/", 16)
 	writeHeaderField(&buf, strconv.FormatInt(h.ModTime.Unix(), 10), 12)
 	writeHeaderField(&buf, strconv.FormatInt(h.Uid, 10), 6)
 	writeHeaderField(&buf, strconv.FormatInt(h.Gid, 10), 6)
@@ -123,7 +122,7 @@ func (r *Reader) Read(bs []byte) (int, error) {
 		return 0, r.err
 	}
 	if r.curr == nil {
-		return 0, fmt.Errorf("tar: invalid read")
+		return 0, tape.ErrRead
 	}
 	n, err := r.curr.Read(bs)
 	r.read += n

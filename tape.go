@@ -9,7 +9,8 @@ import (
 )
 
 var (
-	ErrMagic       = errors.New("tape: Invalid Magic")
+	ErrMagic       = errors.New("tape: invalid Magic")
+	ErrRead        = errors.New("tape: invalid read")
 	ErrTooShort    = errors.New("tape: write too short")
 	ErrTooLong     = errors.New("tape: write too long")
 	ErrUnsupported = errors.New("tape: unsupported format")

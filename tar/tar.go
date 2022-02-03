@@ -121,7 +121,7 @@ func (r *Reader) Read(b []byte) (int, error) {
 		return 0, r.err
 	}
 	if r.curr == nil {
-		return 0, fmt.Errorf("tar: invalid read")
+		return 0, tape.ErrRead
 	}
 	n, err := r.curr.Read(b)
 	r.read += n
@@ -243,9 +243,9 @@ func (r *Reader) updateHeader(hdr *Header) error {
 			return err
 		}
 		fmt.Println(name, value)
+    hdr.PaxHeaders[name] = value
 		switch name {
 		default:
-			hdr.PaxHeaders[name] = value
 		case paxAtime:
 		case paxMtime:
 		case paxPath:
