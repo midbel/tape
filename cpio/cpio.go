@@ -131,36 +131,54 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 
 type Reader struct {
 	inner   *bufio.Reader
-	curr    rw.Reader
+	curr    io.Reader
 	err     error
-	discard int
+
+	read int
 }
 
 func NewReader(r io.Reader) *Reader {
-	return &Reader{inner: bufio.NewReader(r)}
+	return &Reader{
+		inner: bufio.NewReader(r),
+	}
+}
+
+func (r *Reader) Read(bs []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.curr == nil {
+		return 0, fmt.Errorf("cpio: invalid read")
+	}
+	n, err := r.curr.Read(bs)
+	r.read += n
+	if errors.Is(err, io.EOF) {
+		r.discard(r.read)
+		r.curr = nil
+	}
+	if !errors.Is(err, io.EOF) {
+		r.err = err
+	}
+	return n, err
 }
 
 func (r *Reader) Next() (*tape.Header, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
-	if r.discard > 0 {
-		r.inner.Discard(r.discard)
-		r.discard = 0
+	if r.curr != nil {
+		io.Copy(io.Discard, r.curr)
 	}
 	h, err := r.next()
 	if err != nil {
 		r.err = err
 		return nil, r.err
 	}
-
 	if h.Filename == trailer {
 		return nil, io.EOF
 	}
-	if mod := h.Length % 4; mod > 0 {
-		r.discard = int(4 - mod)
-	}
-	r.curr = rw.NewReader(r.inner, int(h.Length))
+	r.read = 0
+	r.curr = io.LimitReader(r.inner, h.Length)
 	return h, nil
 }
 
@@ -177,7 +195,7 @@ func (r *Reader) next() (*tape.Header, error) {
 	h.Uid = readHeaderField(r.inner)
 	h.Gid = readHeaderField(r.inner)
 	h.Links = readHeaderField(r.inner)
-	h.ModTime = time.Unix(readHeaderField(r.inner), 0)
+	h.ModTime = readModTime(r.inner)
 	h.Length = readHeaderField(r.inner)
 	h.Major = readHeaderField(r.inner)
 	h.Minor = readHeaderField(r.inner)
@@ -187,33 +205,29 @@ func (r *Reader) next() (*tape.Header, error) {
 	h.Check = readHeaderField(r.inner)
 	h.Filename = readFilename(r.inner, z)
 
-	if mod := (headerLen + z) % 4; mod != 0 {
-		if _, r.err = r.inner.Discard(4 - int(mod)); r.err != nil {
-			return nil, r.err
-		}
-	}
-	return &h, nil
+
+	r.err = r.discard(int(headerLen+z))
+	return &h, r.err
 }
 
-func (r *Reader) Read(bs []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
+func (r *Reader) discard(n int) error {
+	pad := n % 4
+	if pad == 0 {
+		return nil
 	}
-	n, err := r.curr.Read(bs)
-	if err != nil && err != io.EOF {
-		r.err = err
-	}
-	return n, err
+	n, err := r.inner.Discard(4-pad)
+	return err
 }
 
 func readMagic(r io.Reader) error {
-	bs := make([]byte, magicLen)
-	if _, err := io.ReadFull(r, bs); err != nil {
+	b := make([]byte, magicLen)
+	if _, err := io.ReadFull(r, b); err != nil {
 		return err
 	}
-	if bytes.Equal(bs, magicCRC) || bytes.Equal(bs, magicASCII) {
+	if bytes.Equal(b, magicCRC) || bytes.Equal(b, magicASCII) {
 		return nil
 	}
+	fmt.Printf("%x - %x\n", b, magicASCII)
 	return tape.ErrUnsupported
 }
 
@@ -225,12 +239,17 @@ func readFilename(r io.Reader, n int64) string {
 	return string(bs[:n-1])
 }
 
+func readModTime(r io.Reader) time.Time {
+	when := readHeaderField(r)
+	return time.Unix(when, 0)
+}
+
 func readHeaderField(r io.Reader) int64 {
-	bs := make([]byte, fieldLen)
-	if _, err := io.ReadFull(r, bs); err != nil {
+	b := make([]byte, fieldLen)
+	if _, err := io.ReadFull(r, b); err != nil {
 		return -1
 	}
-	i, err := strconv.ParseInt(string(bs), 0, 64)
+	i, err := strconv.ParseInt(string(b), 16, 64)
 	if err != nil {
 		return -1
 	}

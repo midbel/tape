@@ -1,8 +1,8 @@
 package main
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +16,7 @@ import (
 	"github.com/midbel/tape/cpio"
 )
 
-const pattern = "%s\t%s\t%s\t%d\t%s\t%s"
+const pattern = "%s\t%s\t%s\t%d\t%s\t%s\n"
 
 const (
 	dateYear  = "Jan 02  2006"
@@ -91,7 +91,6 @@ func listHeaders(file string, open OpenFunc) ([]*tape.Header, error) {
 }
 
 type printer struct {
-	*log.Logger
 	writer *tabwriter.Writer
 
 	when  time.Time
@@ -112,7 +111,6 @@ func Print(block string, iso bool) *printer {
 		p.coeff = 1024 * 1024 * 1024
 	}
 	p.writer = tabwriter.NewWriter(os.Stdout, 6, 2, 2, ' ', 0)
-	p.Logger = log.New(p.writer, "", 0)
 	if !iso {
 		p.when = time.Now()
 	}
@@ -131,7 +129,7 @@ func (p *printer) Print(h *tape.Header) {
 		f = dateYear
 	}
 	m := strings.Join(parseMode(h.Mode), "")
-	p.Logger.Printf(pattern, m, h.User(), h.Group(), h.Length/p.coeff, h.ModTime.Format(f), h.Filename)
+	fmt.Fprintf(p.writer, pattern, m, h.User(), h.Group(), h.Length/p.coeff, h.ModTime.Format(f), h.Filename)
 }
 
 func (p *printer) Flush() {

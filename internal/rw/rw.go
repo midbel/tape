@@ -1,7 +1,6 @@
 package rw
 
 import (
-	"bufio"
 	"io"
 
 	"github.com/midbel/tape"
@@ -20,45 +19,6 @@ type Reader interface {
 type Writer interface {
 	io.Writer
 	Size
-}
-
-type fileReader struct {
-	reader io.Reader
-	remain int
-	size   int
-}
-
-func (f *fileReader) Available() int {
-	return f.remain
-}
-
-func (f *fileReader) Size() int {
-	return f.size
-}
-
-func NewReader(r io.Reader, s int) Reader {
-	return &fileReader{
-		reader: r,
-		remain: s,
-		size:   s,
-	}
-}
-
-func (f *fileReader) Read(bs []byte) (int, error) {
-	if f.remain <= 0 {
-		if m := f.size % 2; f.size != 0 && m == 1 {
-			b := bufio.NewReader(f.reader)
-			b.ReadByte()
-			f.size = 0
-		}
-		return 0, io.EOF
-	}
-	if len(bs) > f.remain {
-		bs = bs[:f.remain]
-	}
-	n, err := f.reader.Read(bs)
-	f.remain -= n
-	return n, err
 }
 
 type fileWriter struct {
@@ -105,5 +65,24 @@ func (f *fileWriter) Write(bs []byte) (int, error) {
 	if rest > 0 {
 		return n, tape.ErrTooLong
 	}
+	return n, err
+}
+
+type LimitedWriter struct {
+	W io.Writer
+	N int
+	r int
+}
+
+func LimitWriter(w io.Writer, n int) io.Writer {
+	return &LimitedWriter{
+		W: w,
+		N: n,
+		r: n,
+	}
+}
+
+func (w *LimitedWriter) Write(b []byte) (int, error) {
+	n, err := w.W.Write(b)
 	return n, err
 }

@@ -121,7 +121,7 @@ func (r *Reader) Read(b []byte) (int, error) {
 		return 0, r.err
 	}
 	if r.curr == nil {
-		return 0, fmt.Errorf("reader not ready: reading header")
+		return 0, fmt.Errorf("tar: invalid read")
 	}
 	n, err := r.curr.Read(b)
 	r.read += n
@@ -132,7 +132,7 @@ func (r *Reader) Read(b []byte) (int, error) {
 	if !errors.Is(err, io.EOF) {
 		r.err = err
 	}
-	return n, r.err
+	return n, err
 }
 
 func (r *Reader) discard() {
