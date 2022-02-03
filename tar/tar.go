@@ -1,7 +1,10 @@
 package tar
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -26,6 +29,10 @@ const (
 	TypeGlobalEx          = 'g'
 )
 
+func (t TypeFlag) isExtended() bool {
+	return t == TypeSingleEx || t == TypeGlobalEx
+}
+
 const (
 	blockSize       = 512
 	lenName         = 100
@@ -46,7 +53,19 @@ const (
 	lenPrefix       = 155
 )
 
-const ustar = "ustar"
+const (
+	ustar      = "ustar"
+	paxAtime   = "atime"
+	paxMtime   = "mtime"
+	paxPath    = "path"
+	paxLink    = "linkpath"
+	paxUser    = "uname"
+	paxGroup   = "gname"
+	paxSize    = "size"
+	paxUid     = "uid"
+	paxGid     = "gid"
+	paxCharset = "charset"
+)
 
 var (
 	zeros = make([]byte, blockSize)
@@ -75,13 +94,20 @@ type Header struct {
 	ChangeTime time.Time
 
 	PaxHeaders map[string]string
+}
 
-	Ustar        bool
-	UstarVersion string
+func (h *Header) merge(other *Header) {
+	if other == nil {
+		return
+	}
 }
 
 type Reader struct {
 	inner io.Reader
+	curr  io.Reader
+	err   error
+
+	read int
 }
 
 func NewReader(r io.Reader) *Reader {
@@ -91,14 +117,72 @@ func NewReader(r io.Reader) *Reader {
 }
 
 func (r *Reader) Read(b []byte) (int, error) {
-	return 0, nil
+	if r.err != nil {
+		return 0, r.err
+	}
+
+	if r.curr == nil {
+		return 0, fmt.Errorf("reader not ready: reading header")
+	}
+	n, err := r.curr.Read(b)
+	r.read += n
+	if errors.Is(err, io.EOF) {
+		r.discard()
+		r.curr = nil
+	}
+	if !errors.Is(err, io.EOF) {
+		r.err = err
+	}
+	return n, r.err
+}
+
+func (r *Reader) discard() {
+	pad := r.read % blockSize
+	if pad == 0 {
+		return
+	}
+	discard(r.inner, int64(blockSize-pad))
 }
 
 func (r *Reader) Next() (*Header, error) {
-	return r.next()
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.curr != nil {
+		return nil, fmt.Errorf("reader not ready: reading file")
+	}
+	hdr, err := r.next()
+	if err == nil {
+		r.curr = io.LimitReader(r.inner, hdr.Size)
+	}
+	r.err = err
+	return hdr, r.err
 }
 
 func (r *Reader) next() (*Header, error) {
+	r.read = 0
+	var (
+		hdr *Header
+		pax *Header
+		err error
+	)
+	for {
+		hdr, err = r.readHeader()
+		if err != nil {
+			return nil, err
+		}
+		if !hdr.Type.isExtended() {
+			break
+		}
+		pax = hdr
+	}
+	if pax != nil {
+
+	}
+	return hdr, err
+}
+
+func (r *Reader) readHeader() (*Header, error) {
 	if _, err := io.ReadFull(r.inner, block); err != nil {
 		return nil, err
 	}
@@ -118,6 +202,7 @@ func (r *Reader) next() (*Header, error) {
 		uid int64
 		str string
 	)
+	hdr.PaxHeaders = make(map[string]string)
 	hdr.Name, off = readString(block, off, lenName)
 	hdr.Perm, off = readOctal(block, off, lenMode)
 	uid, off = readOctal(block, off, lenUid)
@@ -133,8 +218,7 @@ func (r *Reader) next() (*Header, error) {
 	if str, off = readString(block, off, lenUstar); str != ustar {
 		return &hdr, nil
 	}
-	hdr.Ustar = true
-	hdr.UstarVersion, off = readString(block, off, lenUstarVersion)
+	_, off = readString(block, off, lenUstarVersion)
 	hdr.User, off = readString(block, off, lenUser)
 	hdr.Group, off = readString(block, off, lenGroup)
 	hdr.DevMinor, off = readOctal(block, off, lenDevMinor)
@@ -142,8 +226,60 @@ func (r *Reader) next() (*Header, error) {
 	if str, _ = readString(block, off, lenPrefix); str != "" {
 		hdr.Name = filepath.Join(str, hdr.Name)
 	}
-	r.skip(hdr.Size)
+
+	if hdr.Type.isExtended() {
+		err := r.updateHeader(&hdr)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return &hdr, nil
+}
+
+func (r *Reader) updateHeader(hdr *Header) error {
+	scan := bufio.NewScanner(io.LimitReader(r.inner, hdr.Size))
+	for scan.Scan() {
+		name, value, err := parsePaxRecord(scan.Text())
+		if err != nil {
+			return err
+		}
+		fmt.Println(name, value)
+		switch name {
+		default:
+			hdr.PaxHeaders[name] = value
+		case paxAtime:
+		case paxMtime:
+		case paxPath:
+		case paxLink:
+		case paxUser:
+		case paxGroup:
+		case paxSize:
+		case paxUid:
+		case paxGid:
+		case paxCharset:
+		}
+	}
+  discard(r.inner, blockSize-hdr.Size)
+	return scan.Err()
+}
+
+func parsePaxRecord(str string) (string, string, error) {
+	size, rest, ok := strings.Cut(str, " ")
+	if !ok {
+		return "", "", fmt.Errorf("pax header: missing space")
+	}
+	z, err := strconv.Atoi(size)
+	if err != nil {
+		return "", "", fmt.Errorf("pax header: invalid integer %s", size)
+	}
+	if len(str) != z-1 {
+		return "", "", fmt.Errorf("pax header: string length mismatched! want %d, got %d", len(str), z)
+	}
+	name, value, ok := strings.Cut(rest, "=")
+	if !ok {
+		return "", "", fmt.Errorf("pax header: missing equal")
+	}
+	return name, value, nil
 }
 
 func (r *Reader) skip(z int64) {
@@ -153,7 +289,11 @@ func (r *Reader) skip(z int64) {
 	if mod := z % blockSize; mod != 0 {
 		z += blockSize - mod
 	}
-	io.CopyN(io.Discard, r.inner, z)
+	discard(r.inner, z)
+}
+
+func discard(r io.Reader, n int64) {
+	io.CopyN(io.Discard, r, n)
 }
 
 func readTypeFlag(block []byte, offset, size int) (TypeFlag, int) {
