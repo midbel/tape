@@ -100,8 +100,8 @@ type Reader struct {
 
 func NewReader(r io.Reader) (*Reader, error) {
 	var (
-		rs     = bufio.NewReader(r)
-		b, err = rs.Peek(len(Magic))
+		tmp    = bufio.NewReader(r)
+		b, err = tmp.Peek(len(Magic))
 	)
 	if err != nil {
 		return nil, err
@@ -109,10 +109,32 @@ func NewReader(r io.Reader) (*Reader, error) {
 	if !bytes.Equal(b, Magic) {
 		return nil, tape.ErrMagic
 	}
-	if _, err := rs.Discard(len(b) + 1); err != nil {
+	if _, err := tmp.Discard(len(b) + 1); err != nil {
 		return nil, err
 	}
-	return &Reader{inner: rs}, nil
+	rs := Reader{
+		inner: tmp,
+	}
+	return &rs, nil
+}
+
+func (r *Reader) Read(bs []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.curr == nil {
+		return 0, fmt.Errorf("tar: invalid read")
+	}
+	n, err := r.curr.Read(bs)
+	r.read += n
+	if errors.Is(err, io.EOF) {
+		r.discard()
+		r.curr = nil
+	}
+	if !errors.Is(err, io.EOF) {
+		r.err = err
+	}
+	return n, err
 }
 
 func (r *Reader) Next() (*tape.Header, error) {
@@ -154,25 +176,6 @@ func (r *Reader) readHeader() (*tape.Header, error) {
 		return nil, r.err
 	}
 	return &h, r.err
-}
-
-func (r *Reader) Read(bs []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
-	}
-	if r.curr == nil {
-		return 0, fmt.Errorf("reader not ready: reading header")
-	}
-	n, err := r.curr.Read(bs)
-	r.read += n
-	if errors.Is(err, io.EOF) {
-		r.discard()
-		r.curr = nil
-	}
-	if !errors.Is(err, io.EOF) {
-		r.err = err
-	}
-	return n, r.err
 }
 
 func (r *Reader) discard() {
