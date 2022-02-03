@@ -120,7 +120,6 @@ func (r *Reader) Read(b []byte) (int, error) {
 	if r.err != nil {
 		return 0, r.err
 	}
-
 	if r.curr == nil {
 		return 0, fmt.Errorf("reader not ready: reading header")
 	}
@@ -259,7 +258,7 @@ func (r *Reader) updateHeader(hdr *Header) error {
 		case paxCharset:
 		}
 	}
-  discard(r.inner, blockSize-hdr.Size)
+	discard(r.inner, blockSize-hdr.Size)
 	return scan.Err()
 }
 

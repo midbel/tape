@@ -2,7 +2,6 @@ package main
 
 import (
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -72,6 +71,7 @@ func listHeaders(file string, open OpenFunc) ([]*tape.Header, error) {
 		return nil, err
 	}
 	defer f.Close()
+
 	r, err := open(f)
 	if err != nil {
 		return nil, err
@@ -81,9 +81,7 @@ func listHeaders(file string, open OpenFunc) ([]*tape.Header, error) {
 		switch h, err := r.Next(); err {
 		case nil:
 			hs = append(hs, h)
-			if _, err := io.CopyN(ioutil.Discard, r, h.Length); err != nil {
-				return nil, err
-			}
+			io.Copy(io.Discard, r)
 		case io.EOF:
 			return hs, nil
 		default:

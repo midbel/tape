@@ -52,7 +52,7 @@ func readBasic(r io.Reader) error {
 			return err
 		}
 		fmt.Printf("%+s (%c) %s -> %d\n", h.Name, h.Type, h.ModTime, h.Size)
-    io.Copy(io.Discard, tr)
+		io.Copy(io.Discard, tr)
 	}
 	return nil
 }

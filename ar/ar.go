@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"path"
 	"strconv"
@@ -91,22 +92,24 @@ func (w *Writer) Close() error {
 
 type Reader struct {
 	inner *bufio.Reader
-	curr  rw.Reader
+	curr  io.Reader
 	err   error
+
+	read int
 }
 
 func NewReader(r io.Reader) (*Reader, error) {
 	var (
-		rs      = bufio.NewReader(r)
-		bs, err = rs.Peek(len(Magic))
+		rs     = bufio.NewReader(r)
+		b, err = rs.Peek(len(Magic))
 	)
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(bs, Magic) {
+	if !bytes.Equal(b, Magic) {
 		return nil, tape.ErrMagic
 	}
-	if _, err := rs.Discard(len(bs) + 1); err != nil {
+	if _, err := rs.Discard(len(b) + 1); err != nil {
 		return nil, err
 	}
 	return &Reader{inner: rs}, nil
@@ -123,8 +126,21 @@ func (r *Reader) next() (*tape.Header, error) {
 	if r.curr != nil {
 		io.Copy(io.Discard, r.curr)
 	}
+	h, err := r.readHeader()
+	if err != nil {
+		r.err = err
+		return nil, err
+	}
+	r.curr = io.LimitReader(r.inner, h.Length)
+	r.read = 0
+	return h, nil
+}
 
-	var h tape.Header
+func (r *Reader) readHeader() (*tape.Header, error) {
+	var (
+		h tape.Header
+		b = make([]byte, len(linefeed))
+	)
 	if r.err = readFilename(r.inner, &h); r.err != nil {
 		return nil, r.err
 	}
@@ -134,11 +150,9 @@ func (r *Reader) next() (*tape.Header, error) {
 	if r.err = readFileInfos(r.inner, &h); r.err != nil {
 		return nil, r.err
 	}
-	bs := make([]byte, len(linefeed))
-	if _, r.err = r.inner.Read(bs); r.err != nil || !bytes.Equal(bs, linefeed) {
+	if _, r.err = r.inner.Read(b); r.err != nil || !bytes.Equal(b, linefeed) {
 		return nil, r.err
 	}
-	r.curr = rw.NewReader(r.inner, int(h.Length))
 	return &h, r.err
 }
 
@@ -146,11 +160,26 @@ func (r *Reader) Read(bs []byte) (int, error) {
 	if r.err != nil {
 		return 0, r.err
 	}
+	if r.curr == nil {
+		return 0, fmt.Errorf("reader not ready: reading header")
+	}
 	n, err := r.curr.Read(bs)
-	if err != nil && !errors.Is(err, io.EOF) {
+	r.read += n
+	if errors.Is(err, io.EOF) {
+		r.discard()
+		r.curr = nil
+	}
+	if !errors.Is(err, io.EOF) {
 		r.err = err
 	}
-	return n, err
+	return n, r.err
+}
+
+func (r *Reader) discard() {
+	if pad := r.read % 2; pad == 0 {
+		return
+	}
+	r.inner.ReadByte()
 }
 
 func readFilename(r io.Reader, h *tape.Header) error {
@@ -163,50 +192,50 @@ func readFilename(r io.Reader, h *tape.Header) error {
 }
 
 func readModTime(r io.Reader, h *tape.Header) error {
-	bs, err := readHeaderField(r, 12)
+	b, err := readHeaderField(r, 12)
 	if err != nil {
 		return err
 	}
-	i, err := strconv.ParseInt(string(bs), 0, 64)
+	when, err := strconv.ParseInt(string(b), 0, 64)
 	if err != nil {
 		return err
 	}
-	h.ModTime = time.Unix(i, 0)
+	h.ModTime = time.Unix(when, 0).UTC()
 	return nil
 }
 
 func readFileInfos(r io.Reader, h *tape.Header) error {
-	if bs, err := readHeaderField(r, 6); err != nil {
+	if b, err := readHeaderField(r, 6); err != nil {
 		return err
 	} else {
-		i, err := strconv.ParseInt(string(bs), 0, 64)
+		i, err := strconv.ParseInt(string(b), 0, 64)
 		if err != nil {
 			return err
 		}
 		h.Uid = i
 	}
-	if bs, err := readHeaderField(r, 6); err != nil {
+	if b, err := readHeaderField(r, 6); err != nil {
 		return err
 	} else {
-		i, err := strconv.ParseInt(string(bs), 0, 64)
+		i, err := strconv.ParseInt(string(b), 0, 64)
 		if err != nil {
 			return err
 		}
 		h.Gid = i
 	}
-	if bs, err := readHeaderField(r, 8); err != nil {
+	if b, err := readHeaderField(r, 8); err != nil {
 		return err
 	} else {
-		i, err := strconv.ParseInt(string(bs), 8, 64)
+		i, err := strconv.ParseInt(string(b), 8, 64)
 		if err != nil {
 			return err
 		}
 		h.Mode = i
 	}
-	if bs, err := readHeaderField(r, 10); err != nil {
+	if b, err := readHeaderField(r, 10); err != nil {
 		return err
 	} else {
-		i, err := strconv.ParseInt(string(bs), 0, 64)
+		i, err := strconv.ParseInt(string(b), 0, 64)
 		if err != nil {
 			return err
 		}
@@ -216,11 +245,11 @@ func readFileInfos(r io.Reader, h *tape.Header) error {
 }
 
 func readHeaderField(r io.Reader, n int) ([]byte, error) {
-	bs := make([]byte, n)
-	if _, err := io.ReadFull(r, bs); err != nil {
+	b := make([]byte, n)
+	if _, err := io.ReadFull(r, b); err != nil {
 		return nil, err
 	}
-	return bytes.TrimSpace(bs), nil
+	return bytes.TrimSpace(b), nil
 }
 
 func writeHeaderField(w io.Writer, s string, n int) {
