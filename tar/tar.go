@@ -149,7 +149,7 @@ func (r *Reader) Next() (*Header, error) {
 		return nil, r.err
 	}
 	if r.curr != nil {
-		return nil, fmt.Errorf("reader not ready: reading file")
+		io.Copy(io.Discard, r.curr)
 	}
 	hdr, err := r.next()
 	if err == nil {
