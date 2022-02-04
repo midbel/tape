@@ -79,7 +79,7 @@ func appendFile(w tape.Writer, file string, preserve bool) error {
 		Filename: i.Name(),
 		ModTime:  i.ModTime(),
 		Mode:     int64(i.Mode()),
-		Length:   i.Size(),
+		Size:     i.Size(),
 	}
 	if i, ok := i.Sys().(*syscall.Stat_t); ok {
 		h.Uid = int64(i.Uid)

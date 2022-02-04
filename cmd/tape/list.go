@@ -129,7 +129,7 @@ func (p *printer) Print(h *tape.Header) {
 		f = dateYear
 	}
 	m := strings.Join(parseMode(h.Mode), "")
-	fmt.Fprintf(p.writer, pattern, m, h.User(), h.Group(), h.Length/p.coeff, h.ModTime.Format(f), h.Filename)
+	fmt.Fprintf(p.writer, pattern, m, h.User(), h.Group(), h.Size/p.coeff, h.ModTime.Format(f), h.Filename)
 }
 
 func (p *printer) Flush() {

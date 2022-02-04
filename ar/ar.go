@@ -50,20 +50,22 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 		return err
 	}
 
+	h.Mode |= 1 << 15
+
 	var buf bytes.Buffer
 	writeHeaderField(&buf, filepath.Base(h.Filename)+"/", 16)
 	writeHeaderField(&buf, strconv.FormatInt(h.ModTime.Unix(), 10), 12)
 	writeHeaderField(&buf, strconv.FormatInt(h.Uid, 10), 6)
 	writeHeaderField(&buf, strconv.FormatInt(h.Gid, 10), 6)
 	writeHeaderField(&buf, strconv.FormatInt(h.Mode, 8), 8)
-	writeHeaderField(&buf, strconv.FormatInt(h.Length, 10), 10)
+	writeHeaderField(&buf, strconv.FormatInt(h.Size, 10), 10)
 	buf.Write(linefeed)
 
 	if _, w.err = io.Copy(w.inner, &buf); w.err != nil {
 		return w.err
 	}
-	w.size = int(h.Length)
-	w.curr = rw.LimitWriter(w.inner, h.Length)
+	w.size = int(h.Size)
+	w.curr = rw.LimitWriter(w.inner, h.Size)
 	return nil
 }
 
@@ -81,11 +83,11 @@ func (w *Writer) Flush() error {
 	return w.err
 }
 
-func (w *Writer) Write(bs []byte) (int, error) {
+func (w *Writer) Write(b []byte) (int, error) {
 	if w.err != nil {
 		return 0, w.err
 	}
-	n, err := w.curr.Write(bs)
+	n, err := w.curr.Write(b)
 	w.written += n
 	w.err = err
 	return n, w.err
@@ -164,7 +166,7 @@ func (r *Reader) next() (*tape.Header, error) {
 		r.err = err
 		return nil, err
 	}
-	r.curr = io.LimitReader(r.inner, h.Length)
+	r.curr = io.LimitReader(r.inner, h.Size)
 	r.read = 0
 	return h, nil
 }
@@ -253,7 +255,7 @@ func readFileInfos(r io.Reader, h *tape.Header) error {
 		if err != nil {
 			return err
 		}
-		h.Length = i
+		h.Size = i
 	}
 	return nil
 }

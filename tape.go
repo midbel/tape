@@ -15,6 +15,7 @@ var (
 	ErrTooLong     = errors.New("tape: write too long")
 	ErrUnsupported = errors.New("tape: unsupported format")
 	ErrHeader      = errors.New("tape: invalid header")
+	ErrClosed      = errors.New("tape: archive closed")
 )
 
 type Reader interface {
@@ -39,7 +40,7 @@ func Convert(r Reader, w Writer) error {
 		if err := w.WriteHeader(h); err != nil {
 			return err
 		}
-		if _, err := io.CopyN(w, r, h.Length); err != nil {
+		if _, err := io.CopyN(w, r, h.Size); err != nil {
 			return err
 		}
 	}
@@ -52,7 +53,7 @@ type Header struct {
 	Uid      int64
 	Gid      int64
 	Links    int64
-	Length   int64
+	Size     int64
 	Major    int64
 	Minor    int64
 	RMajor   int64

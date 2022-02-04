@@ -72,7 +72,7 @@ func extractFile(r tape.Reader, datadir string, members []string, preserve bool)
 	}
 	ix := sort.SearchStrings(members, h.Filename)
 	if ix >= len(members) || members[ix] != h.Filename {
-		_, err = io.CopyN(io.Discard, r, h.Length)
+		_, err = io.CopyN(io.Discard, r, h.Size)
 		return err
 	}
 
@@ -83,7 +83,7 @@ func extractFile(r tape.Reader, datadir string, members []string, preserve bool)
 	}
 	defer w.Close()
 
-	if _, err := io.CopyN(w, r, h.Length); err != nil {
+	if _, err := io.Copy(w, r); err != nil {
 		return err
 	}
 

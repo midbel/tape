@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/midbel/rw"
 	"github.com/midbel/tape"
-	"github.com/midbel/tape/internal/rw"
 )
 
 var (
@@ -29,9 +29,12 @@ const (
 
 type Writer struct {
 	inner  io.Writer
-	curr   rw.Writer
+	curr   io.Writer
 	err    error
 	blocks int64
+
+	size    int
+	written int
 }
 
 func NewWriter(w io.Writer) *Writer {
@@ -45,18 +48,19 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 	if w.err = w.writeHeader(h, false); w.err != nil {
 		return w.err
 	}
-	w.curr = rw.NewWriter(w.inner, int(h.Length))
+	w.size = int(h.Size)
+	w.curr = rw.LimitWriter(w.inner, h.Size)
 	return w.err
 }
 
-func (w *Writer) Write(bs []byte) (int, error) {
+func (w *Writer) Write(b []byte) (int, error) {
 	if w.err != nil {
 		return 0, w.err
 	}
-	n, err := w.curr.Write(bs)
-	if err != nil && !errors.Is(err, tape.ErrTooLong) {
-		w.err = err
-	}
+	n, err := w.curr.Write(b)
+	w.written += n
+	w.blocks += int64(n)
+	w.err = err
 	return n, err
 }
 
@@ -64,14 +68,14 @@ func (w *Writer) Flush() error {
 	if w.curr == nil || w.err != nil {
 		return w.err
 	}
-	if w.curr == nil || w.curr.Available() > 0 {
+	if w.curr == nil || w.written < w.size {
 		return tape.ErrTooShort
 	}
-	if mod := w.curr.Size() % 4; mod > 0 {
+	if mod := w.size % 4; mod > 0 {
 		zs := make([]byte, 4-mod)
 		_, w.err = w.inner.Write(zs)
 	}
-	w.curr = nil
+	w.reset()
 	return w.err
 }
 
@@ -85,11 +89,26 @@ func (w *Writer) Close() error {
 	if w.err = w.writeHeader(&h, true); w.err != nil {
 		return w.err
 	}
-	if mod := w.blocks % blockSize; mod != 0 {
-		zs := make([]byte, blockSize-mod)
-		_, w.err = w.inner.Write(zs)
-	}
+	w.pad()
 	return w.err
+}
+
+func (w *Writer) pad() {
+	var pad int
+	if w.blocks < blockSize {
+		pad = blockSize - int(w.blocks)
+	} else {
+		mod := w.blocks % blockSize
+		if mod != 0 {
+			pad = blockSize - int(mod)
+		}
+	}
+	if pad == 0 {
+		return
+	}
+	zs := make([]byte, pad)
+	pad, w.err = w.inner.Write(zs)
+	w.blocks = 0
 }
 
 func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
@@ -98,6 +117,9 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 		z   = int64(len(h.Filename)) + 1
 	)
 
+	if !trailing {
+		h.Mode |= 1 << 15
+	}
 	buf.Write(magicASCII)
 	writeHeaderInt(&buf, h.Inode)
 	writeHeaderInt(&buf, h.Mode)
@@ -109,7 +131,7 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 	} else {
 		writeHeaderInt(&buf, t.Unix())
 	}
-	writeHeaderInt(&buf, h.Length)
+	writeHeaderInt(&buf, h.Size)
 	writeHeaderInt(&buf, h.Major)
 	writeHeaderInt(&buf, h.Minor)
 	writeHeaderInt(&buf, h.RMajor)
@@ -124,9 +146,14 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 		n, _ := buf.Write(zs)
 		w.blocks += int64(n)
 	}
-
 	_, w.err = io.Copy(w.inner, &buf)
 	return w.err
+}
+
+func (w *Writer) reset() {
+	w.size = 0
+	w.written = 0
+	w.curr = nil
 }
 
 type Reader struct {
@@ -178,7 +205,7 @@ func (r *Reader) Next() (*tape.Header, error) {
 		return nil, io.EOF
 	}
 	r.read = 0
-	r.curr = io.LimitReader(r.inner, h.Length)
+	r.curr = io.LimitReader(r.inner, h.Size)
 	return h, nil
 }
 
@@ -196,7 +223,7 @@ func (r *Reader) next() (*tape.Header, error) {
 	h.Gid = readHeaderField(r.inner)
 	h.Links = readHeaderField(r.inner)
 	h.ModTime = readModTime(r.inner)
-	h.Length = readHeaderField(r.inner)
+	h.Size = readHeaderField(r.inner)
 	h.Major = readHeaderField(r.inner)
 	h.Minor = readHeaderField(r.inner)
 	h.RMajor = readHeaderField(r.inner)
@@ -256,7 +283,7 @@ func readHeaderField(r io.Reader) int64 {
 }
 
 func writeHeaderInt(w io.Writer, f int64) {
-	fmt.Fprintf(w, "%08x", uint64(f))
+	fmt.Fprintf(w, "%08X", uint64(f))
 }
 
 func writeFilename(w io.Writer, f string) {
