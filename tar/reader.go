@@ -14,117 +14,6 @@ import (
 	"github.com/midbel/tape"
 )
 
-var ErrHeader = tape.ErrHeader
-
-type TypeFlag byte
-
-const (
-	TypeReg      TypeFlag = '0'
-	TypeHardLink          = '1'
-	TypeSymLink           = '2'
-	TypeChar              = '3'
-	TypeBlock             = '4'
-	TypeDir               = '5'
-	TypeSingleEx          = 'x'
-	TypeGlobalEx          = 'g'
-)
-
-func (t TypeFlag) isExtended() bool {
-	return t == TypeSingleEx || t == TypeGlobalEx
-}
-
-const (
-	blockSize       = 512
-	lenName         = 100
-	lenMode         = 8
-	lenUid          = 8
-	lenGid          = 8
-	lenSize         = 12
-	lenTime         = 12
-	lenSum          = 8
-	lenType         = 1
-	lenLink         = 100
-	lenUstar        = 6
-	lenUstarVersion = 2
-	lenUser         = 32
-	lenGroup        = 32
-	lenDevMinor     = 8
-	lenDevMajor     = 8
-	lenPrefix       = 155
-)
-
-const (
-	ustar      = "ustar"
-	paxAtime   = "atime"
-	paxMtime   = "mtime"
-	paxPath    = "path"
-	paxLink    = "linkpath"
-	paxUser    = "uname"
-	paxGroup   = "gname"
-	paxSize    = "size"
-	paxUid     = "uid"
-	paxGid     = "gid"
-	paxCharset = "charset"
-)
-
-var (
-	zeros = make([]byte, blockSize)
-	block = make([]byte, blockSize)
-)
-
-type Header struct {
-	Type TypeFlag
-
-	Name     string
-	LinkName string
-
-	Perm  int64
-	Size  int64
-	Uid   int
-	Gid   int
-	User  string
-	Group string
-
-	DevMinor int64
-	DevMajor int64
-
-	Checksum   []byte
-	ModTime    time.Time
-	AccessTime time.Time
-	ChangeTime time.Time
-
-	PaxHeaders map[string]string
-}
-
-func (h *Header) merge(other *Header) {
-	if other == nil {
-		return
-	}
-	for k, v := range other.PaxHeaders {
-		h.PaxHeaders[k] = v
-		switch k {
-		case paxAtime:
-			h.AccessTime = other.AccessTime
-		case paxMtime:
-			h.ModTime = other.ModTime
-		case paxPath:
-			h.Name = other.Name
-		case paxLink:
-			h.LinkName = other.LinkName
-		case paxUser:
-			h.User = other.User
-		case paxGroup:
-			h.Group = other.Group
-		case paxSize:
-			h.Size = other.Size
-		case paxUid:
-			h.Uid = other.Uid
-		case paxGid:
-			h.Gid = other.Gid
-		}
-	}
-}
-
 type Reader struct {
 	inner io.Reader
 	curr  io.Reader
@@ -158,14 +47,6 @@ func (r *Reader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func (r *Reader) discard() {
-	pad := r.read % blockSize
-	if pad == 0 {
-		return
-	}
-	discard(r.inner, int64(blockSize-pad))
-}
-
 func (r *Reader) Next() (*Header, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -180,6 +61,14 @@ func (r *Reader) Next() (*Header, error) {
 	}
 	r.err = err
 	return hdr, r.err
+}
+
+func (r *Reader) discard() {
+	pad := r.read % blockSize
+	if pad == 0 {
+		return
+	}
+	discard(r.inner, int64(blockSize-pad))
 }
 
 func (r *Reader) next() (*Header, error) {
@@ -240,7 +129,7 @@ func (r *Reader) readHeader() (*Header, error) {
 		return &hdr, nil
 	}
 	str, off = readString(block, off, lenUstarVersion)
-	if str != "" {
+	if hdr.Type.isExtended() && str != ustarver {
 		return nil, fmt.Errorf("%s: unsupported %s version", str, ustar)
 	}
 	hdr.User, off = readString(block, off, lenUser)
@@ -338,15 +227,15 @@ func parsePaxRecord(str string) (string, string, error) {
 	return name, value, nil
 }
 
-func (r *Reader) skip(z int64) {
-	if z == 0 {
-		return
-	}
-	if mod := z % blockSize; mod != 0 {
-		z += blockSize - mod
-	}
-	discard(r.inner, z)
-}
+// func (r *Reader) skip(z int64) {
+// 	if z == 0 {
+// 		return
+// 	}
+// 	if mod := z % blockSize; mod != 0 {
+// 		z += blockSize - mod
+// 	}
+// 	discard(r.inner, z)
+// }
 
 func discard(r io.Reader, n int64) {
 	io.CopyN(io.Discard, r, n)
@@ -382,36 +271,4 @@ func readOctal(block []byte, offset, size int) (int64, int) {
 func readTime(block []byte, offset, size int) (time.Time, int) {
 	when, off := readOctal(block, offset, size)
 	return time.Unix(when, 0).UTC(), off
-}
-
-type Writer struct {
-	inner   io.Writer
-	curr    io.Writer
-	err     error
-	written int
-}
-
-func NewWriter(w io.Writer) *Writer {
-	return &Writer{}
-}
-
-func (w *Writer) Write(b []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
-	}
-	return 0, nil
-}
-
-func (w *Writer) Flush() error {
-	if r.err != nil {
-		return 0, r.err
-	}
-	return nil
-}
-
-func (w *Writer) Close() error {
-	if r.err != nil {
-		return 0, r.err
-	}
-	return nil
 }
