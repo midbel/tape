@@ -3,6 +3,7 @@ package tape
 import (
 	"errors"
 	"io"
+	"os"
 	"os/user"
 	"strconv"
 	"time"
@@ -61,6 +62,22 @@ type Header struct {
 	Check    int64
 	ModTime  time.Time
 	Filename string
+}
+
+func FileInfoHeader(file string) (*Header, error) {
+	i, err := os.Stat(file)
+	if err != nil {
+		return nil, err
+	}
+	h := Header{
+		Filename: file,
+		Size:     i.Size(),
+		Mode:     int64(i.Mode()),
+		Uid:      int64(os.Getuid()),
+		Gid:      int64(os.Getgid()),
+		ModTime:  i.ModTime(),
+	}
+	return &h, nil
 }
 
 func (h Header) User() string {
