@@ -1,2 +1,4 @@
 github.com/midbel/cli v0.2.1 h1:u/xbwsu+oyV0jw5kkAimksy8qzoiCTE2HvtYtE/PHLE=
 github.com/midbel/cli v0.2.1/go.mod h1:HRXqwypQ5mtcO4MhCT7eCDLyAS1lua9lmD2yHAP82i4=
+github.com/midbel/rw v0.1.0 h1:jbgA4m76skqPbWDsEpsNKoQWT3mTpCxJp2TMNZXhwd0=
+github.com/midbel/rw v0.1.0/go.mod h1:iIwUqmsls/PSDEPVHLqkcLp2D8xxuwVpBce6pNwf0nI=

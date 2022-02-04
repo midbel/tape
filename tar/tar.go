@@ -385,7 +385,10 @@ func readTime(block []byte, offset, size int) (time.Time, int) {
 }
 
 type Writer struct {
-	inner io.Writer
+	inner   io.Writer
+	curr    io.Writer
+	err     error
+	written int
 }
 
 func NewWriter(w io.Writer) *Writer {
@@ -393,13 +396,22 @@ func NewWriter(w io.Writer) *Writer {
 }
 
 func (w *Writer) Write(b []byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
 	return 0, nil
 }
 
 func (w *Writer) Flush() error {
+	if r.err != nil {
+		return 0, r.err
+	}
 	return nil
 }
 
 func (w *Writer) Close() error {
+	if r.err != nil {
+		return 0, r.err
+	}
 	return nil
 }

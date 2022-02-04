@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/midbel/rw"
 	"github.com/midbel/tape"
-	"github.com/midbel/tape/internal/rw"
 )
 
 var (
@@ -21,8 +21,11 @@ var (
 
 type Writer struct {
 	inner io.Writer
-	curr  rw.Writer
+	curr  io.Writer
 	err   error
+
+	size    int
+	written int
 }
 
 func NewWriter(w io.Writer) (*Writer, error) {
@@ -32,7 +35,10 @@ func NewWriter(w io.Writer) (*Writer, error) {
 	if _, err := w.Write(linefeed[1:]); err != nil {
 		return nil, err
 	}
-	return &Writer{inner: w}, nil
+	ws := Writer{
+		inner: w,
+	}
+	return &ws, nil
 }
 
 func (w *Writer) WriteHeader(h *tape.Header) error {
@@ -56,7 +62,8 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 	if _, w.err = io.Copy(w.inner, &buf); w.err != nil {
 		return w.err
 	}
-	w.curr = rw.NewWriter(w.inner, int(h.Length))
+	w.size = int(h.Length)
+	w.curr = rw.LimitWriter(w.inner, h.Length)
 	return nil
 }
 
@@ -64,13 +71,13 @@ func (w *Writer) Flush() error {
 	if w.curr == nil || w.err != nil {
 		return w.err
 	}
-	if w.curr == nil || w.curr.Available() > 0 {
+	if w.curr == nil || w.written < w.size {
 		return tape.ErrTooShort
 	}
-	if mod := w.curr.Size() % 2; mod == 1 {
+	if mod := w.size % 2; mod == 1 {
 		_, w.err = w.inner.Write(linefeed[1:])
 	}
-	w.curr = nil
+	w.reset()
 	return w.err
 }
 
@@ -79,14 +86,19 @@ func (w *Writer) Write(bs []byte) (int, error) {
 		return 0, w.err
 	}
 	n, err := w.curr.Write(bs)
-	if err != nil && !errors.Is(err, tape.ErrTooLong) {
-		w.err = err
-	}
+	w.written += n
+	w.err = err
 	return n, w.err
 }
 
 func (w *Writer) Close() error {
 	return w.Flush()
+}
+
+func (w *Writer) reset() {
+	w.size = 0
+	w.written = 0
+	w.curr = nil
 }
 
 type Reader struct {

@@ -67,22 +67,3 @@ func (f *fileWriter) Write(bs []byte) (int, error) {
 	}
 	return n, err
 }
-
-type LimitedWriter struct {
-	W io.Writer
-	N int
-	r int
-}
-
-func LimitWriter(w io.Writer, n int) io.Writer {
-	return &LimitedWriter{
-		W: w,
-		N: n,
-		r: n,
-	}
-}
-
-func (w *LimitedWriter) Write(b []byte) (int, error) {
-	n, err := w.W.Write(b)
-	return n, err
-}
