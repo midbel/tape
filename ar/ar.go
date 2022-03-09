@@ -1,6 +1,7 @@
 package ar
 
 import (
+	"fmt"
 	"bufio"
 	"bytes"
 	"errors"
@@ -185,8 +186,11 @@ func (r *Reader) readHeader() (*tape.Header, error) {
 	if r.err = readFileInfos(r.inner, &h); r.err != nil {
 		return nil, r.err
 	}
-	if _, r.err = r.inner.Read(b); r.err != nil || !bytes.Equal(b, linefeed) {
+	if _, r.err = r.inner.Read(b); r.err != nil {
 		return nil, r.err
+	}
+	if !bytes.Equal(b, linefeed) {
+		return nil, fmt.Errorf("expected %x, got %x", linefeed, b)
 	}
 	return &h, r.err
 }
