@@ -162,6 +162,7 @@ type Reader struct {
 	err   error
 
 	read int
+	size int
 }
 
 func NewReader(r io.Reader) *Reader {
@@ -179,7 +180,7 @@ func (r *Reader) Read(bs []byte) (int, error) {
 	}
 	n, err := r.curr.Read(bs)
 	r.read += n
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || r.read >= r.size {
 		r.discard(r.read)
 		r.curr = nil
 	}
@@ -204,6 +205,7 @@ func (r *Reader) Next() (*tape.Header, error) {
 	if h.Filename == trailer {
 		return nil, io.EOF
 	}
+	r.size = int(h.Size)
 	r.read = 0
 	r.curr = io.LimitReader(r.inner, h.Size)
 	return h, nil

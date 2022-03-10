@@ -20,6 +20,7 @@ type Reader struct {
 	err   error
 
 	read int
+	size int
 }
 
 func NewReader(r io.Reader) *Reader {
@@ -37,7 +38,7 @@ func (r *Reader) Read(b []byte) (int, error) {
 	}
 	n, err := r.curr.Read(b)
 	r.read += n
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || r.read >= r.size {
 		r.discard()
 		r.curr = nil
 	}
@@ -57,6 +58,7 @@ func (r *Reader) Next() (*Header, error) {
 	hdr, err := r.next()
 	if err == nil {
 		r.read = 0
+		r.size = int(hdr.Size)
 		r.curr = io.LimitReader(r.inner, hdr.Size)
 	}
 	r.err = err

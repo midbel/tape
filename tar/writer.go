@@ -2,6 +2,7 @@ package tar
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
@@ -73,7 +74,7 @@ func (w *Writer) Flush() error {
 		return nil
 	}
 	if w.written != w.size {
-
+		return fmt.Errorf("not enough bytes written (%d != %d)", w.written, w.size)
 	}
 	w.pad(w.size)
 	return w.err
