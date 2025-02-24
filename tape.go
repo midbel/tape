@@ -64,13 +64,13 @@ type Header struct {
 	Filename string
 }
 
-func FileInfoHeaderFromFile(f *os.File) (*Header, error) {
-	i, err := os.Stat()
+func FileInfoHeaderFromFile(file *os.File) (*Header, error) {
+	i, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}	
 	h := Header{
-		Filename: f.Name(),
+		Filename: file.Name(),
 		Size:     i.Size(),
 		Mode:     int64(i.Mode()),
 		Uid:      int64(os.Getuid()),
@@ -109,4 +109,42 @@ func (h Header) Group() string {
 		return id
 	}
 	return g.Name
+}
+
+
+type limitedWriter struct {
+	W io.Writer
+	N int64
+	r int64
+}
+
+func LimitWriter(w io.Writer, n int64) io.Writer {
+	return &limitedWriter{
+		W: w,
+		N: n,
+	}
+}
+
+func (w *limitedWriter) Write(b []byte) (int, error) {
+	if w.N <= 0 {
+		return 0, ErrTooLong
+	}
+	var (
+		remain int64
+		err    error
+	)
+	if remain = w.N - int64(len(b)); remain < 0 {
+		b = b[:w.N]
+		err = ErrTooLong
+	}
+	n, err1 := w.W.Write(b)
+	if err == nil {
+		err = err1
+	}
+	w.N -= int64(n)
+	return n, err
+}
+
+func (w *limitedWriter) Available() int64 {
+	return w.N
 }

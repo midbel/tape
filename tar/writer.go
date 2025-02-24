@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midbel/rw"
+	"github.com/midbel/tape"
 )
 
 type Writer struct {
@@ -57,7 +57,7 @@ func (w *Writer) WriteHeader(h *Header) error {
 	if w.err == nil {
 		w.reset()
 		if h.Type == TypeReg {
-			w.curr = rw.LimitWriter(w.inner, h.Size)
+			w.curr = tape.LimitWriter(w.inner, h.Size)
 		}
 		w.size = int(h.Size)
 	}

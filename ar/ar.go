@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/midbel/rw"
 	"github.com/midbel/tape"
 )
 
@@ -66,7 +65,7 @@ func (w *Writer) WriteHeader(h *tape.Header) error {
 		return w.err
 	}
 	w.size = int(h.Size)
-	w.curr = rw.LimitWriter(w.inner, h.Size)
+	w.curr = tape.LimitWriter(w.inner, h.Size)
 	return nil
 }
 
