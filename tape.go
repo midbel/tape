@@ -64,13 +64,13 @@ type Header struct {
 	Filename string
 }
 
-func FileInfoHeader(file string) (*Header, error) {
-	i, err := os.Stat(file)
+func FileInfoHeaderFromFile(f *os.File) (*Header, error) {
+	i, err := os.Stat()
 	if err != nil {
 		return nil, err
-	}
+	}	
 	h := Header{
-		Filename: file,
+		Filename: f.Name(),
 		Size:     i.Size(),
 		Mode:     int64(i.Mode()),
 		Uid:      int64(os.Getuid()),
@@ -78,6 +78,15 @@ func FileInfoHeader(file string) (*Header, error) {
 		ModTime:  i.ModTime(),
 	}
 	return &h, nil
+}
+
+func FileInfoHeader(file string) (*Header, error) {
+	r, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return FileInfoHeaderFromFile(r)
 }
 
 func (h Header) User() string {
