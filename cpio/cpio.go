@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/midbel/rw"
 	"github.com/midbel/tape"
 )
 
@@ -38,7 +37,10 @@ type Writer struct {
 }
 
 func NewWriter(w io.Writer) *Writer {
-	return &Writer{inner: w}
+	ws := Writer{
+		inner: w,
+	}
+	return &ws
 }
 
 func (w *Writer) WriteHeader(h *tape.Header) error {
@@ -71,9 +73,10 @@ func (w *Writer) Flush() error {
 	if w.curr == nil || w.written < w.size {
 		return tape.ErrTooShort
 	}
-	if mod := w.size % 4; mod > 0 {
+	if mod := w.blocks % 4; mod > 0 {
 		zs := make([]byte, 4-mod)
 		_, w.err = w.inner.Write(zs)
+		w.blocks += int64(len(zs))
 	}
 	w.reset()
 	return w.err
@@ -89,34 +92,17 @@ func (w *Writer) Close() error {
 	if w.err = w.writeHeader(&h, true); w.err != nil {
 		return w.err
 	}
-	w.pad()
-	return w.err
-}
-
-func (w *Writer) pad() {
-	var pad int
-	if w.blocks < blockSize {
-		pad = blockSize - int(w.blocks)
-	} else {
-		mod := w.blocks % blockSize
-		if mod != 0 {
-			pad = blockSize - int(mod)
-		}
-	}
-	if pad == 0 {
-		return
-	}
-	zs := make([]byte, pad)
-	pad, w.err = w.inner.Write(zs)
+	// w.pad()
+	w.inner.Write(make([]byte, 4))
 	w.blocks = 0
+	return w.err
 }
 
 func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 	var (
 		buf bytes.Buffer
-		z   = int64(len(h.Filename)) + 1
+		siz = int64(len(h.Filename)) + 1
 	)
-
 	if !trailing {
 		h.Mode |= 1 << 15
 	}
@@ -136,12 +122,12 @@ func (w *Writer) writeHeader(h *tape.Header, trailing bool) error {
 	writeHeaderInt(&buf, h.Minor)
 	writeHeaderInt(&buf, h.RMajor)
 	writeHeaderInt(&buf, h.RMinor)
-	writeHeaderInt(&buf, z)
+	writeHeaderInt(&buf, siz)
 	writeHeaderInt(&buf, 0)
 	writeFilename(&buf, h.Filename)
 
-	w.blocks += headerLen + z
-	if mod := w.blocks % 4; mod != 0 && !trailing {
+	w.blocks += headerLen + siz
+	if mod := w.blocks % 4; mod > 0 && !trailing {
 		zs := make([]byte, 4-mod)
 		n, _ := buf.Write(zs)
 		w.blocks += int64(n)
@@ -289,5 +275,5 @@ func writeHeaderInt(w io.Writer, f int64) {
 }
 
 func writeFilename(w io.Writer, f string) {
-	fmt.Fprint(w, f+"\x00")
+	io.WriteString(w, f+"\x00")
 }
