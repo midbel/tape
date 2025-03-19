@@ -241,7 +241,6 @@ func readMagic(r io.Reader) error {
 	if bytes.Equal(b, magicCRC) || bytes.Equal(b, magicASCII) {
 		return nil
 	}
-	fmt.Printf("%x - %x\n", b, magicASCII)
 	return tape.ErrUnsupported
 }
 
